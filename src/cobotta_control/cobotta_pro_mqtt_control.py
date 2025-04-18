@@ -28,7 +28,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
 MQTT_SERVER = os.getenv("MQTT_SERVER", "sora2.uclab.jp")
 MQTT_CTRL_TOPIC = os.getenv("MQTT_CTRL_TOPIC", "control")
 ROBOT_UUID = os.getenv("ROBOT_UUID","no-uuid")
-ROBOT_MODEL = os.getenv("ROBOT_MODEL","no-model")
+ROBOT_MODEL = os.getenv("ROBOT_MODEL","cobotta-pro-real")
 MQTT_MANAGE_TOPIC = os.getenv("MQTT_MANAGE_TOPIC", "dev")
 MQTT_MANAGE_RCV_TOPIC = os.getenv("MQTT_MANAGE_RCV_TOPIC", "dev")+"/"+ROBOT_UUID
 MQTT_FORMAT = os.getenv("MQTT_FORMAT", "UR-realtime-control-MQTT")
@@ -50,7 +50,7 @@ class Cobotta_Pro_MQTT:
                     "cookie": "none",
                 },
                 "devType": "robot",
-                "type": "cobotta-pro-real",
+                "type": ROBOT_MODEL,
                 "version": "none",
                 "devId": ROBOT_UUID,
             }
