@@ -74,14 +74,15 @@ class Cobotta_Pro_MQTT:
             if MQTT_FORMAT == "UR-realtime-control-MQTT":
                 joints=['j1','j2','j3','j4','j5','j6']
                 rot =[js[x]  for x in joints]    
+                joint_q = [x for x in rot]
             elif MQTT_FORMAT == "Denso-Cobotta-Pro-Control-IK":
                 # 7要素入っているが6要素でよいため
                 rot = js["joints"][:6]
+                joint_q = [x for x in rot]
+                # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
+                joint_q[4] = joint_q[4] + 90
             else:
                 raise ValueError
-            joint_q = [x for x in rot]
-            # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-            joint_q[4] = joint_q[4] + 90
             self.pose[6:12] = joint_q 
 
             if "grip" in js:
