@@ -22,12 +22,12 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
 ROBOT_IP = os.getenv("ROBOT_IP", "192.168.5.45")
 HAND_IP = os.getenv("HAND_IP", "192.168.5.46")
-ROBOT_UUID = os.getenv("ROBOT_UUID","no-uuid")
-MQTT_SERVER = os.getenv("MQTT_SERVER", "127.0.0.1")
+ROBOT_UUID = os.getenv("ROBOT_UUID","cobotta-pro-real")
+MQTT_SERVER = os.getenv("MQTT_SERVER", "sora2.uclab.jp")
 MQTT_ROBOT_STATE_TOPIC = os.getenv("MQTT_ROBOT_STATE_TOPIC", "robot")+"/"+ROBOT_UUID
-MQTT_FORMAT = os.getenv("MQTT_FORMAT", "UR-realtime-control-MQTT")
-MQTT_MODE = os.getenv("MQTT_MODE", "local")
-SAVE = os.getenv("SAVE", "false") == "true"
+MQTT_FORMAT = os.getenv("MQTT_FORMAT", "Denso-Cobotta-Pro-Control-IK")
+MQTT_MODE = os.getenv("MQTT_MODE", "metawork")
+SAVE = os.getenv("SAVE", "true") == "true"
 
 # 基本的に運用時には固定するパラメータ
 t_intv = 0.008

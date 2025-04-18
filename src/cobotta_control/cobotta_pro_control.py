@@ -28,8 +28,8 @@ from interpolate import DelayedInterpolator
 load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
 ROBOT_IP = os.getenv("ROBOT_IP", "192.168.5.45")
 HAND_IP = os.getenv("HAND_IP", "192.168.5.46")
-SAVE = os.getenv("SAVE", "false") == "true"
-MOVE = os.getenv("MOVE", "false") == "true"
+SAVE = os.getenv("SAVE", "true") == "true"
+MOVE = os.getenv("MOVE", "true") == "true"
 
 # 基本的に運用時には固定するパラメータ
 # 実際にロボットを制御するかしないか (VRとの結合時のデバッグ用)
@@ -45,7 +45,7 @@ filter_kind: Literal[
     "moveit_servo_humble",
     "control_and_target_diff",
 ] = "original"
-speed_limits = np.array([15, 15, 15, 15, 20, 15])
+speed_limits = np.array([240, 200, 240, 300, 300, 475])
 speed_limit_ratio = 0.9
 # NOTE: 加速度制限。特に明確な値は調整していない
 accel_limits = np.array([10000, 10000, 10000, 10000, 10000, 10000])

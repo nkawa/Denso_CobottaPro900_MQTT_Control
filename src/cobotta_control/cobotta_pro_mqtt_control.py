@@ -27,12 +27,12 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
 MQTT_SERVER = os.getenv("MQTT_SERVER", "sora2.uclab.jp")
 MQTT_CTRL_TOPIC = os.getenv("MQTT_CTRL_TOPIC", "control")
-ROBOT_UUID = os.getenv("ROBOT_UUID","no-uuid")
+ROBOT_UUID = os.getenv("ROBOT_UUID","cobotta-pro-real")
 ROBOT_MODEL = os.getenv("ROBOT_MODEL","cobotta-pro-real")
-MQTT_MANAGE_TOPIC = os.getenv("MQTT_MANAGE_TOPIC", "dev")
+MQTT_MANAGE_TOPIC = os.getenv("MQTT_MANAGE_TOPIC", "mgr")
 MQTT_MANAGE_RCV_TOPIC = os.getenv("MQTT_MANAGE_RCV_TOPIC", "dev")+"/"+ROBOT_UUID
-MQTT_FORMAT = os.getenv("MQTT_FORMAT", "UR-realtime-control-MQTT")
-MQTT_MODE = os.getenv("MQTT_MODE", "local")
+MQTT_FORMAT = os.getenv("MQTT_FORMAT", "Denso-Cobotta-Pro-Control-IK")
+MQTT_MODE = os.getenv("MQTT_MODE", "metawork")
 
 class Cobotta_Pro_MQTT:
     def __init__(self):
@@ -74,14 +74,15 @@ class Cobotta_Pro_MQTT:
             if MQTT_FORMAT == "UR-realtime-control-MQTT":
                 joints=['j1','j2','j3','j4','j5','j6']
                 rot =[js[x]  for x in joints]    
+                joint_q = [x for x in rot]
             elif MQTT_FORMAT == "Denso-Cobotta-Pro-Control-IK":
                 # 7要素入っているが6要素でよいため
                 rot = js["joints"][:6]
+                joint_q = [x for x in rot]
+                # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
+                joint_q[4] = joint_q[4] + 90
             else:
                 raise ValueError
-            joint_q = [x for x in rot]
-            # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-            joint_q[4] = joint_q[4] + 90
             self.pose[6:12] = joint_q 
 
             if "grip" in js:
