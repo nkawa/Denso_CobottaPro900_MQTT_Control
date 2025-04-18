@@ -50,7 +50,7 @@ class Cobotta_Pro_MQTT:
                     "cookie": "none",
                 },
                 "devType": "robot",
-                "codeType": "cobotta-pro-real",
+                "type": "cobotta-pro-real",
                 "version": "none",
                 "devId": ROBOT_UUID,
             }
