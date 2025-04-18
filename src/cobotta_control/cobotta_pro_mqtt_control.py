@@ -27,12 +27,12 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
 MQTT_SERVER = os.getenv("MQTT_SERVER", "sora2.uclab.jp")
 MQTT_CTRL_TOPIC = os.getenv("MQTT_CTRL_TOPIC", "control")
-ROBOT_UUID = os.getenv("ROBOT_UUID","no-uuid")
+ROBOT_UUID = os.getenv("ROBOT_UUID","cobotta-pro-real")
 ROBOT_MODEL = os.getenv("ROBOT_MODEL","cobotta-pro-real")
-MQTT_MANAGE_TOPIC = os.getenv("MQTT_MANAGE_TOPIC", "dev")
+MQTT_MANAGE_TOPIC = os.getenv("MQTT_MANAGE_TOPIC", "mgr")
 MQTT_MANAGE_RCV_TOPIC = os.getenv("MQTT_MANAGE_RCV_TOPIC", "dev")+"/"+ROBOT_UUID
-MQTT_FORMAT = os.getenv("MQTT_FORMAT", "UR-realtime-control-MQTT")
-MQTT_MODE = os.getenv("MQTT_MODE", "local")
+MQTT_FORMAT = os.getenv("MQTT_FORMAT", "Denso-Cobotta-Pro-Control-IK")
+MQTT_MODE = os.getenv("MQTT_MODE", "metawork")
 
 class Cobotta_Pro_MQTT:
     def __init__(self):
