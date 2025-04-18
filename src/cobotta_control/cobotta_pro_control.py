@@ -45,7 +45,7 @@ filter_kind: Literal[
     "moveit_servo_humble",
     "control_and_target_diff",
 ] = "original"
-speed_limits = np.array([15, 15, 15, 15, 20, 15])
+speed_limits = np.array([240, 200, 240, 300, 300, 475])
 speed_limit_ratio = 0.9
 # NOTE: 加速度制限。特に明確な値は調整していない
 accel_limits = np.array([10000, 10000, 10000, 10000, 10000, 10000])
