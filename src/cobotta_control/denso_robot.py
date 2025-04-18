@@ -16,7 +16,6 @@ from bcap_python.bcapclient import BCAPClient
 from bcap_python.orinexception import ORiNException
 from on_robot.device import Device
 from on_robot.twofg import TWOFG
-from lib.robot import Robot
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +90,7 @@ E_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象エラー"].astype(bo
     lambda x: original_error_to_python_error(int(x, 16))
 ))
 
-class DensoRobot(Robot):
+class DensoRobot:
     """Denso Cobotta Pro 900の制御クラス。
 
     ハンド OnRobot 2FG7 を使う場合はツール座標系を
@@ -116,7 +115,7 @@ class DensoRobot(Robot):
             "TwofgGripMode": 1,
         },
     ):
-        super().__init__(name)
+        self.name = name
         self._bcap = None
         self._hRob = 0
         self._hCtrl = 0
@@ -322,6 +321,33 @@ class DensoRobot(Robot):
         if prev_servo_mode:
             self.enter_servo_mode()
 
+    def move_pose_until_completion(
+        self,
+        pose: List[float],
+        precisions: Optional[List[float]] = None,
+        check_interval: float = 1,
+        timeout: float = 60,
+    ) -> None:
+        self.move_pose(pose)
+        if precisions is None:
+            precisions = [1, 1, 1, 1, 1, 1]
+        precisions = np.asarray(precisions)
+        t_start = time.time()
+        while True:
+            current_pose = self.get_current_pose()
+            diff = np.abs(np.asarray(current_pose) - np.asarray(pose))
+            if np.all(diff < precisions):
+                done = True
+                break
+            time.sleep(check_interval)
+            if time.time() - t_start > timeout:
+                logger.info("Timeout before reaching destination.")
+                done = False
+                break
+        # 位置が十分近くなった後念のため少し待つ
+        time.sleep(1)
+        return done
+
     def move_joint(self, joint, option: str = ""):
         """
         option: 動作オプション。"NEXT": 非同期実行オプション
@@ -349,6 +375,33 @@ class DensoRobot(Robot):
         self._bcap.robot_move(self._hRob, 1, f"@E J({joint_str})", option)
         if prev_servo_mode:
             self.enter_servo_mode()
+
+    def move_joint_until_completion(
+        self,
+        pose: List[float],
+        precisions: Optional[List[float]] = None,
+        check_interval: float = 1,
+        timeout: float = 60,
+    ) -> None:
+        self.move_joint(pose)
+        if precisions is None:
+            precisions = [1, 1, 1, 1, 1, 1]
+        precisions = np.asarray(precisions)
+        t_start = time.time()
+        while True:
+            current_pose = self.get_current_joint()
+            diff = np.abs(np.asarray(current_pose) - np.asarray(pose))
+            if np.all(diff < precisions):
+                done = True
+                break
+            time.sleep(check_interval)
+            if time.time() - t_start > timeout:
+                logger.info("Timeout before reaching destination.")
+                done = False
+                break
+        # 位置が十分近くなった後念のため少し待つ
+        time.sleep(1)
+        return done
 
     def get_current_pose(self):
         cur_pos = self._bcap.robot_execute(self._hRob, "CurPos")
