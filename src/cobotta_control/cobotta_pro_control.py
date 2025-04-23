@@ -66,10 +66,19 @@ n_windows *= int(0.008 / t_intv)
 use_hand = True
 hand_mode: Literal["b-CAP", "xmlrpc"] = "xmlrpc"
 reset_default_state = True
-# TCPが台の中心の上に来る初期位置
-# default_joint = [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, 94.7038]
-# NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-default_joint = [159.3784, 10.08485, 122.90902, 151.10866, -43.20116 + 90, 20.69275]
+default_joint_mode = 1
+if default_joint_mode == 0:
+    # TCPが台の中心の上に来る初期位置
+    default_joint = [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, 94.7038]
+elif default_joint_mode == 1:
+    # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
+    default_joint = [159.3784, 10.08485, 122.90902, 151.10866, -43.20116 + 90, 20.69275]
+elif default_joint_mode == 2:
+    # 2025/04/18 19:25の新しい位置?VRとの対応がおかしい気がする
+    # 毎回の値も[0, 0, 0, 0, 0, 0]が飛んでくる気がする
+    default_joint = [115.55677, 5.86272, 135.70465, 110.53529, -15.55474 + 90, 35.59977]
+else:
+    raise ValueError("default_joint_mode must be 0, 1, or 2")
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
