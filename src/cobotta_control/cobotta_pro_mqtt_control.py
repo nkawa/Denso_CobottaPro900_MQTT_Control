@@ -101,7 +101,11 @@ class Cobotta_Pro_MQTT:
                 js = json.loads(msg.payload)
                 goggles_id = js["devId"]
                 print(f"Connected to goggles: {goggles_id}")
-                self.mqtt_ctrl_topic = MQTT_CTRL_TOPIC + "/" + goggles_id
+                mqtt_ctrl_topic = MQTT_CTRL_TOPIC + "/" + goggles_id
+                if mqtt_ctrl_topic != self.mqtt_ctrl_topic:
+                    if self.mqtt_ctrl_topic is not None:
+                        self.client.unsubscribe(self.mqtt_ctrl_topic)    
+                    self.mqtt_ctrl_topic = mqtt_ctrl_topic
                 self.client.subscribe(self.mqtt_ctrl_topic)
                 print("subscribe to: " + self.mqtt_ctrl_topic)
         else:
