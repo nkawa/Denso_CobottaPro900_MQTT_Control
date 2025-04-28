@@ -126,6 +126,22 @@ class Cobotta_Pro_MQTT:
 
         self.connect_mqtt()
 
+
+class Cobotta_Pro_Debug:
+    def run_proc(self, monitor_dict):
+        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
+        self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        while True:
+            diff = self.ar[6:12]-self.ar[0:6]
+            diff *=1000
+            diff = diff.astype('int')
+            print(self.ar[0:6],self.ar[6:12])
+            print(diff)
+            print(self.ar, flush=True)
+            print(monitor_dict)
+            time.sleep(2)
+
+
 class ProcessManager:
     def __init__(self):
         # mp.set_start_method('spawn')
@@ -134,45 +150,80 @@ class ProcessManager:
             self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name='cobotta_pro')
         except FileExistsError:
             self.sm = mp.shared_memory.SharedMemory(size = sz, name='cobotta_pro')
-        self.ar = np.ndarray((12,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
+        self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
+        self.ar[:] = 0
+        self.manager = multiprocessing.Manager()
+        self.monitor_dict = self.manager.dict()
+        self.monitor_lock = self.manager.Lock()
+        self.main_pipe, self.control_pipe = multiprocessing.Pipe()
+        self.state_recv_mqtt = False
+        self.state_monitor = False
+        self.state_control = False
 
     def startRecvMQTT(self):
         self.recv = Cobotta_Pro_MQTT()
         self.recvP = Process(target=self.recv.run_proc, args=(),name="MQTT-recv")
         self.recvP.start()
+        self.state_recv_mqtt = True
 
     def startMonitor(self):
         self.mon = Cobotta_Pro_MON()
-        self.monP = Process(target=self.mon.run_proc, args=(),name="Cobotta-Pro-monitor")
+        self.monP = Process(
+            target=self.mon.run_proc,
+            args=(self.monitor_dict, self.monitor_lock),
+            name="Cobotta-Pro-monitor")
         self.monP.start()
+        self.state_monitor = True
 
     def startControl(self):
         self.ctrl = Cobotta_Pro_CON()
-        self.ctrlP = Process(target=self.ctrl.run_proc, args=(),name="Cobotta-Pro-control")
+        self.ctrlP = Process(
+            target=self.ctrl.run_proc,
+            args=(self.control_pipe,),
+            name="Cobotta-Pro-control")
         self.ctrlP.start()
- 
-    def checkSM(self):
-        while True:
-            diff = self.ar[6:]-self.ar[:6]
-            diff *=1000
-            diff = diff.astype('int')
-            print(self.ar[:6],self.ar[6:])
-            print(diff)
-            time.sleep(2)
-    
+        self.state_control = True
 
-if __name__ == '__main__':
-    pm = ProcessManager()
-    try:
-        print("Monitor!")
-        pm.startMonitor()
-        print("MQTT!")
-        pm.startRecvMQTT()
-        print("Control")
-        pm.startControl()
-        print("Check!")
-        pm.checkSM()
-    except KeyboardInterrupt:
-        print("Stop!")
-        # self.sm.close()
-        # self.sm.unlink()
+    def startDebug(self):
+        self.debug = Cobotta_Pro_Debug()
+        self.debugP = Process(
+            target=self.debug.run_proc,
+            args=(self.monitor_dict,),
+            name="Cobotta-Pro-debug")
+        self.debugP.start()
+
+    def _send_command_to_control(self, command):
+        self.main_pipe.send(command)
+
+    def enable(self):
+        self._send_command_to_control({"command": "enable"})
+
+    def default_pose(self):
+        self._send_command_to_control({"command": "default_pose"})
+
+    def tidy_pose(self):
+        self._send_command_to_control({"command": "tidy_pose"})
+
+    def clear_error(self):
+        self._send_command_to_control({"command": "clear_error"})
+
+    def release_hand(self):
+        self._send_command_to_control({"command": "release_hand"})
+
+    def start_mqtt_control(self):
+        self._send_command_to_control({"command": "start_rt_control"})
+
+    def stop_mqtt_control(self):
+        self.ar[15] = 1
+
+    def get_current_monitor_log(self):
+        with self.monitor_lock:
+            monitor_dict = self.monitor_dict.copy()
+        return monitor_dict
+
+    def __del__(self):
+        self.sm.close()
+        self.sm.unlink()
+        self.manager.shutdown()
+        self.main_pipe.close()
+        self.control_pipe.close()

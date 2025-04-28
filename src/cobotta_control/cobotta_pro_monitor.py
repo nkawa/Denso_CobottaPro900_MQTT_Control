@@ -125,38 +125,36 @@ class Cobotta_Pro_MON:
                 width = None
                 force = None
 
-            # エラーなしまたは制御プロセスでエラー対応成功
+            error = {}
+            # スレーブモード中にエラー情報を取得しようとすると、
+            # スレーブモードが切断される。
+            # 本プロセスでロボットがスレーブモードでないと判断した直後に、
+            # 別プロセスでスレーブモードに入る可能性があるので、
+            # 通常モードの場合のみ呼び出す
             if self.pose[14] == 0:
-                error = {}
-            # 制御プロセスでエラー検出
-            elif self.pose[14] == 1:
-                # ControlとMonitorのコントローラ名はそれぞれ異なるが
-                # Controlがスレーブモードに入れば、
-                # Monitorもスレーブモードに入る
-                # スレーブモードでないときしか
-                # エラー情報を取得できない
-                if self.robot.is_in_servo_mode():
-                    self.robot.leave_servo_mode()
-                # 現在のエラー
                 errors = self.robot.get_cur_error_info_all()
-                error = {"errors": errors}
-                # 自動復帰可能エラー
-                if self.robot.are_all_errors_stateless(errors):
-                    self.pose[14] = 2
-                    error["auto_recoverable"] = True
-                # 復帰にユーザーの対応を求めるエラー
-                else:
-                    self.pose[14] = 3
-                    error["auto_recoverable"] = False
-            # 上以外は対応中のエラーをerrorsとして出力しつづける
-            if not error:
+                # 制御プロセスのエラー検出と方法が違うので、
+                # 直後は状態プロセスでエラーが検出されないことがある
+                # その場合は次のループに検出を持ち越す
+                if len(errors) > 0:
+                    error = {"errors": errors}
+                    # 自動復帰可能エラー
+                    if self.robot.are_all_errors_stateless(errors):
+                        error["auto_recoverable"] = True
+                    # 復帰にユーザーの対応を求めるエラー
+                    else:
+                        error["auto_recoverable"] = False
+            if error:
                 actual_joint_js["error"] = error
 
             self.pose[:len(actual_joint)] = actual_joint
 
             if now-last > 0.3:
-                self.client.publish(MQTT_ROBOT_STATE_TOPIC,
-                                    json.dumps(actual_joint_js))
+                jss = json.dumps(actual_joint_js)
+                self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
+                with self.monitor_lock:
+                    self.monitor_dict.clear()
+                    self.monitor_dict.update(actual_joint_js)
                 last = now
 
             if save_state:
@@ -178,9 +176,11 @@ class Cobotta_Pro_MON:
             if t_wait > 0:
                 time.sleep(t_wait)
 
-    def run_proc(self):
+    def run_proc(self, monitor_dict, monitor_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.monitor_dict = monitor_dict
+        self.monitor_lock = monitor_lock
 
         self.init_realtime()
         self.init_robot()
