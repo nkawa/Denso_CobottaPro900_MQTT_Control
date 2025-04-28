@@ -222,10 +222,13 @@ class Cobotta_Pro_CON:
                 # print("[CNT]: Warning: target reached maximum threshold")
             target = target_th
 
+            # target_delayedは、delay秒前の目標値を前後の値を
+            # 使って線形補間したもの
             if use_interp:
                 target_delayed = di.read(now, target)
             else:
                 target_delayed = target
+            self.last_target_delayed = target_delayed
 
             # 平滑化
             if filter_kind == "original":
