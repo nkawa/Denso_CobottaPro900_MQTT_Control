@@ -158,8 +158,6 @@ class DensoRobot:
         self._hCtrl = self._bcap.controller_connect("", "CaoProv.DENSO.VRC9", "localhost", self.controller_connect_option)
         self._hRob = self._bcap.controller_getrobot(self._hCtrl, "Robot")
         self._interval = 0.008
-        # ティーチングペンダントのエラーをクリアするまえは現在のエラーの数は不明
-        self.n_current_error_infos = None
         self._default_pose = [560, 150, 460, 180, 0, 90]
 
         # self._bcap_hand = BCAPClient(self.host, self.port, self.timeout)
@@ -215,22 +213,37 @@ class DensoRobot:
             self._default_grip_width = self._twofg.get_min_ext_width()
             self._default_release_width = self._twofg.get_max_ext_width()
 
-    def manual_reset(self):
+    def manual_reset(self) -> None:
         # STO状態（セーフティ状態）を解除する
-        return self._bcap.controller_execute(self._hCtrl, "ManualReset")
+        # このコマンドの前にセーフティ状態が解除できる状態になっていなければならない
+        # 例えば非常停止ボタンをONにしてセーフティ状態に入った場合
+        # OFFにしてからこのコマンドを実行しなければセーフティ状態は解除できない
+        # さもなくばエラー(0x83500178「非常停止ON中は実行できません。」が出る)
+        self._bcap.controller_execute(self._hCtrl, "ManualReset")
 
-    def clear_error(self):
-        # ティーチングペンダントのエラーをクリアする
-        ret = self._bcap.controller_execute(self._hCtrl, "ClearError")
-        self.n_current_error_infos = 0
-        return ret
+    def clear_error(self) -> None:
+        """
+        ティーチングペンダントのエラーをクリアする。
+        GetCurErrorInfoなどで取得できるエラーもクリアする。
+        例えば、非常停止中でもエラーをクリアすることはできるが、
+        非常停止状態がOFFになるわけではないため、
+        その後一部のコマンドが実行できないことに注意。
+        気軽にクリアしてしまうと現在のエラーがわからなくなるので注意。
+        """
+        self._bcap.controller_execute(self._hCtrl, "ClearError")
 
     def enable(self) -> bool:
-        logger.info("enable")
         # STO状態（セーフティ状態）を解除する
         self.manual_reset()
         # ティーチングペンダントのエラーをクリアする
         self.clear_error()
+        self.enable_wo_clear_error()
+
+    def enable_wo_clear_error(self) -> None:
+        # Cobotta Proの手動モードではイネーブル前に
+        # マニュアルリセットするのでそれに倣ったフローにしている
+        # STO状態（セーフティ状態）を解除する
+        self.manual_reset()
         # ロボットの軸の制御権
         # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
         self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
@@ -475,6 +488,10 @@ class DensoRobot:
             return 0
 
     def is_in_servo_mode(self) -> bool:
+        """
+        スレーブモード中にあるかどうか。
+        非常停止中も実行できる。
+        """
         return self._bcap.robot_execute(self._hRob, "slvGetMode") != 0x000
 
     def enter_servo_mode_by_mode(self, mode: int = 0x001):
@@ -633,32 +650,16 @@ class DensoRobot:
             self.recover_automatic_servo()
 
     def StoState(self) -> bool:
-        """STO 状態（セーフティ状態）を返します"""
+        """
+        STO 状態（セーフティ状態）を返します。
+        非常停止中も実行できます。
+        """
         return self._bcap.controller_execute(self._hCtrl, "StoState")
-
-    def get_new_cur_error_info_all(self) -> List[Dict[str, Any]]:
-        """
-        現在発生しているエラーの情報を返す。
-        前回この関数を呼び出したときから新たに増えたエラーだけ返す
-        """
-        # スレーブモード時実行不可
-        n_current_error_infos = self._bcap.controller_execute(self._hCtrl, "GetCurErrorCount")
-        # エラーの数が不明な時 (起動時) の対応
-        if self.n_current_error_infos is None:
-            n_new = n_current_error_infos
-        else:
-            n_new = n_current_error_infos - self.n_current_error_infos
-        self.n_current_error_infos = n_current_error_infos
-        # iは0が最新なので古い順から返す
-        infos = []
-        for i in list(range(n_new))[::-1]:
-            info = self.get_cur_error_info(i)
-            infos.append(info)
-        return infos
 
     def get_cur_error_info_all(self) -> List[Dict[str, Any]]:
         """
         現在発生しているエラーの情報を返す。
+        非常停止中も実行できる。
         """
         # スレーブモード時実行不可
         n_current_error_infos = self._bcap.controller_execute(self._hCtrl, "GetCurErrorCount")
@@ -839,6 +840,7 @@ class DensoRobot:
     def get_current_joint(self):
         # コントローラ内部で一定周期（8ms）に更新された現在位置をJ 型で取得する
         # 8関節分出るがCobotta Pro 900は6関節分のみ有効
+        # 非常停止中も実行できる
         cur_jnt = self._bcap.robot_execute(self._hRob, "CurJnt")
         return cur_jnt[:6]
 
@@ -1593,6 +1595,7 @@ class DensoRobot:
         """
         センサ値の力[N]とモーメント[Nm]。内訳は[X, Y, Z, RX, RY, RZ]。
         引数13で取得可能。
+        非常停止中も実行できる。
         """
         return self._bcap.robot_execute(self._hRob, "ForceValue", [13, 0])
 
