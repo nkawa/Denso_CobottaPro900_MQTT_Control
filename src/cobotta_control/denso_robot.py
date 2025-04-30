@@ -766,6 +766,10 @@ class DensoRobot:
         return ret == 0
 
     def recover_automatic_servo(self, max_trials: int = 3):
+        """
+        エラー状態からスレーブモードまで自動復帰する。
+        recover_automatic_enableの使用を推奨。
+        """
         # 以下の方法で復帰できるエラーに対してのみ呼ぶこと
         # 頻繁に呼ばれうるので無駄な処理は入れないこと
 
@@ -823,6 +827,25 @@ class DensoRobot:
                     raise e
             except Exception as e:
                 raise e
+    
+    def recover_automatic_enable(self, timeout: float = 10) -> bool:
+        """エラー状態からイネーブル状態まで自動復帰する"""
+        # STO状態（セーフティ状態）を解除する
+        self.manual_reset()
+        # ティーチングペンダントのエラーをクリアする
+        self.clear_error()
+        # モータをONにし、完了待ちする
+        # 観測範囲では完了してもモータがONでないことがある
+        self._bcap.robot_execute(self._hRob, "Motor", [1, 0])
+        t_start = time.time()
+        while True:
+            # モータがONかを別の方法で確認する
+            if self.is_enabled():
+                return True
+            else:
+                if time.time() - t_start > timeout:
+                    return False
+            time.sleep(0.008)
 
     def _add_fig_if_necessary(self, pose):
         assert len(pose) in [6, 7]

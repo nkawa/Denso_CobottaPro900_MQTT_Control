@@ -150,6 +150,14 @@ class ProcessManager:
             self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name='cobotta_pro')
         except FileExistsError:
             self.sm = mp.shared_memory.SharedMemory(size = sz, name='cobotta_pro')
+        # self.arの要素の説明
+        # [0:6]: 関節の状態値
+        # [6:12]: 関節の目標値
+        # [13]: ハンドの目標値
+        # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
+        # [15]: 0: mqtt_control実行中でない
+        #       1: mqtt_control実行中
+        #       2: mqtt_control実行中だが停止命令中
         self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -214,7 +222,9 @@ class ProcessManager:
         self._send_command_to_control({"command": "start_rt_control"})
 
     def stop_mqtt_control(self):
-        self.ar[15] = 1
+        # mqtt_control中のみシグナルを出す
+        if self.ar[15] == 1:
+            self.ar[15] = 2
 
     def get_current_monitor_log(self):
         with self.monitor_lock:

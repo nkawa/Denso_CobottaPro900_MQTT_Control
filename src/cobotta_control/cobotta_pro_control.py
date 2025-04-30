@@ -131,12 +131,18 @@ class Cobotta_Pro_CON:
             if self.pose[0:6].sum() == 0:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for monitoring..")
+                # 取得する前に終了する場合即時終了可能
+                if self.pose[15] == 2:
+                    break
                 continue
 
             # 目標値を取得しているかを確認
             if self.pose[6:12].sum() == 0:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for target..")
+                # 取得する前に終了する場合即時終了可能
+                if self.pose[15] == 2:
+                    break
                 continue 
 
             # 関節の状態値
@@ -397,11 +403,10 @@ class Cobotta_Pro_CON:
                 if t_wait > 0:
                     time.sleep(t_wait)
 
-            if self.pose[15] == 1:
+            if self.pose[15] == 2:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
                 if (control == self.last_control).all():
-                    self.pose[15] = 0
                     return True
                 
             self.last_control = control
@@ -459,12 +464,13 @@ class Cobotta_Pro_CON:
         self.pose[14] = 0
 
     def control_loop_w_recover_automatic(self):
+        self.pose[15] = 1
         self.enter_servo_mode()
         while True:
             successfully_stopped = self.control_loop()
             self.leave_servo_mode()
             if successfully_stopped:
-                return
+                break
             else:
                 errors = self.robot.get_cur_error_info_all()
                 print(f"[CNT]: Error in control loop: {errors}")
@@ -472,26 +478,26 @@ class Cobotta_Pro_CON:
                 if self.robot.are_all_errors_stateless(errors):
                     # 自動復帰を試行。失敗またはエラーの場合は通常モードに戻る。
                     try:
-                        # 直後に自動復帰しようとするとできない場合も多い
-                        # NOTE: 自動復帰までの時間や試行回数は要調整
-                        ret = self.robot.recover_automatic_servo(max_trials=1)
-                        # 成功
-                        if ret:
-                            continue
-                        # 失敗
-                        else:
-                            # その後手動で通常モードに戻せることがある
-                            print("[CNT]: Cannot enter slave mode", flush=True)
-                            self.leave_servo_mode()
-                            return
-                    # エラー
+                        # エラー直後の自動復帰処理に失敗しても、
+                        # 同じ復帰処理を手動で行うと成功することもあるので
+                        # 手動で操作が可能な状態に戻す
+                        ret = self.robot.recover_automatic_enable()
+                        if not ret:
+                            print("[CNT]: Cannot automatically recover enable")
+                            break
+                        self.enter_servo_mode()
+                        continue
+                    # NOTE: 検証用。エラー処理が確立すれば不要と思われる
                     except ORiNException as e:
+                        print("[CNT]: Error during automatic recover")
                         print(f"[CNT]: {self.robot.format_error(e)}")
                         self.leave_servo_mode()
-                        return
+                        break
                 # 自動復帰不可能エラー
                 else:
-                    return
+                    print("[CNT]: Error is not automatically recoverable")
+                    break
+        self.pose[15] = 0
 
     def run_proc(self, control_pipe):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
