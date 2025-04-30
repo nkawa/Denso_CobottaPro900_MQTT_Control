@@ -473,14 +473,20 @@ class Cobotta_Pro_CON:
             successfully_stopped = self.control_loop()
             self.leave_servo_mode()
             if successfully_stopped:
+                print("[CNT]: User required stop and successfully done")
                 break
             else:
                 # 自動復帰の前にエラーを確実にモニタするため待機
                 time.sleep(1)
                 errors = self.robot.get_cur_error_info_all()
                 print(f"[CNT]: Error in control loop: {errors}")
+                # ユーザーが停止させようとしてきちんと停止しなかった場合
+                # エラーによらず通常モードに戻る。
+                if self.pose[15] == 2:
+                    print("[CNT]: User required stop and not successfully done")
+                    break
                 # 自動復帰可能エラー
-                if self.robot.are_all_errors_stateless(errors):
+                elif self.robot.are_all_errors_stateless(errors):
                     # 自動復帰を試行。失敗またはエラーの場合は通常モードに戻る。
                     try:
                         # エラー直後の自動復帰処理に失敗しても、
