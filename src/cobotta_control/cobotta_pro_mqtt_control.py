@@ -206,6 +206,9 @@ class ProcessManager:
     def enable(self):
         self._send_command_to_control({"command": "enable"})
 
+    def disable(self):
+        self._send_command_to_control({"command": "disable"})
+
     def default_pose(self):
         self._send_command_to_control({"command": "default_pose"})
 

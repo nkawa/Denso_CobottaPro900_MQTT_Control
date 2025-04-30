@@ -59,44 +59,70 @@ class MQTTWin:
                       command=self.ReleaseHand)
         self.button_ReleaseHand.grid(row=2,column=2,padx=2,pady=10)
 
+        self.button_DisableRobot = \
+            tk.Button(self.root, text="DisableRobot", padx=5,
+                      command=self.DisableRobot)
+        self.button_DisableRobot.grid(row=2,column=3,padx=2,pady=10)
+
         self.log_monitor = scrolledtext.ScrolledText(
             self.root, width=70, height=60)
         self.log_monitor.grid(row=3,column=0,padx=10,pady=10,columnspan=7)
 
         self.update_log_monitor()
 
-    def log_txt(self,str):
-        self.text_log.insert(tk.END,str)
-
-    def resetRobot(self):
-        self.text_log.delete('1.0', 'end-1c')
-
     def ConnectRobot(self):
+        if self.pm.state_control and self.pm.state_monitor:
+            return
         self.pm.startControl()
         self.pm.startMonitor()
 
     def ConnectMQTT(self):
+        if self.pm.state_recv_mqtt:
+            return
         self.pm.startRecvMQTT()
 
     def EnableRobot(self):
+        if not self.pm.state_control:
+            return
         self.pm.enable()
-    
+
+    def DisableRobot(self):
+        if not self.pm.state_control:
+            return
+        self.pm.disable()
+
     def DefaultPose(self):
+        if not self.pm.state_control:
+            return
         self.pm.default_pose()
     
     def TidyPose(self):
+        if not self.pm.state_control:
+            return
         self.pm.tidy_pose()
 
     def ClearError(self):
+        if not self.pm.state_control:
+            return
         self.pm.clear_error()
 
     def StartMQTTControl(self):
+        if ((not self.pm.state_control) or
+            (not self.pm.state_monitor) or
+            (not self.pm.state_recv_mqtt)):
+            return
         self.pm.start_mqtt_control()
 
     def StopMQTTControl(self):
+        if ((not self.pm.state_control) or
+            (not self.pm.state_monitor) or
+            (not self.pm.state_recv_mqtt)):
+            return
         self.pm.stop_mqtt_control()
 
     def ReleaseHand(self):
+        if not self.pm.state_control:
+            return
         self.pm.release_hand()
 
     def update_log_monitor(self):

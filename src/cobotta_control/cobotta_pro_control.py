@@ -434,6 +434,9 @@ class Cobotta_Pro_CON:
     def enable(self) -> bool:
         self.robot.enable_wo_clear_error()
 
+    def disable(self) -> bool:
+        self.robot.disable()
+
     def default_pose(self) -> bool:
         self.robot.move_joint_until_completion(self.default_joint)
 
@@ -512,6 +515,8 @@ class Cobotta_Pro_CON:
             try:
                 if command["command"] == "enable":
                     self.enable()
+                if command["command"] == "disable":
+                    self.disable()
                 elif command["command"] == "default_pose":
                     self.default_pose()
                 elif command["command"] == "tidy_pose":
