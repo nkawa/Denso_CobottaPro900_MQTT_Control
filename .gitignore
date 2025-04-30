@@ -172,11 +172,3 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-
-# NOTE(t_kubo): Do not commit below
-experiments
-references
-scripts
-.vscode
-logs
-doc
