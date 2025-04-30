@@ -50,7 +50,9 @@ class Cobotta_Pro_MON:
             hand_host=HAND_IP,
         )
         self.robot.start()
-        self.robot.enable_monitor_only()
+        assert self.robot.wait_until_set_tool(timeout=60)
+        if self.robot._use_hand:
+            assert self.robot.setup_hand()
 
     def init_realtime(self):
         os_used = sys.platform

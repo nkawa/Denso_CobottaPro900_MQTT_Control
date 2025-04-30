@@ -173,7 +173,23 @@ class DensoRobot:
         # [0.0, 0.0, 160.0, 0.0, 0.0, 0.0]
         self._tool_def = self.GetToolDef(self._tool)
 
+    def wait_until_set_tool(self, timeout: float = 60) -> bool:
+        cur_tool = self.CurTool()
+        t_start = time.time()
+        while True:
+            if cur_tool == self._tool:
+                return True
+            if time.time() - t_start > timeout:
+                return False
+            time.sleep(1)
+
     def enable_monitor_only(self):
+        """
+        状態取得用のロボットのセットアップ。
+        ツール座標系の変更時にエラーが出ることがあるので使用非推奨。
+        関数内部でツール座標系を変更するのではなく外から明示的に変更するか
+        しないか決めるのが望ましい。
+        """
         logger.info("enable_monitor_only")
         # STO状態（セーフティ状態）を解除する
         self.manual_reset()
@@ -192,8 +208,8 @@ class DensoRobot:
         # したがってツール座標系を変更する必要がない場合は制御権を取得しないように
         # している
 
-        # TODO: 特にアームのコントローラを再起動した後の1回目に失敗するのでここで
-        # 変更するのはやめる
+        # アームのコントローラを再起動した後の1回目に失敗することがあるので
+        # ここで変更するのはよくない
         cur_tool = self.CurTool()
         if cur_tool != self._tool:
             # ロボットの軸の制御権
@@ -209,7 +225,6 @@ class DensoRobot:
             if not ret:
                 logger.error("Hand is not connected")
                 return False
-            # TODO: ハンドパラメータの設定
             self._default_grip_width = self._twofg.get_min_ext_width()
             self._default_release_width = self._twofg.get_max_ext_width()
 
@@ -292,7 +307,6 @@ class DensoRobot:
             if not ret:
                 logger.error("Hand is not connected")
                 return False
-            # TODO: ハンドパラメータの設定
             self._default_grip_width = self._twofg.get_min_ext_width()
             self._default_release_width = self._twofg.get_max_ext_width()
             return True
