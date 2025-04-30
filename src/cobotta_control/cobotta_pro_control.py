@@ -191,7 +191,7 @@ class Cobotta_Pro_CON:
 
             # リアルタイム制御を止める場合は入ってくる目標値を同じにして
             # ロボットを静止させる
-            if self.pose[15] == 1:
+            if self.pose[15] == 2:
                 target = self.last_target
             else:
                 target = self.pose[6:12].copy()
@@ -472,6 +472,8 @@ class Cobotta_Pro_CON:
             if successfully_stopped:
                 break
             else:
+                # 自動復帰の前にエラーを確実にモニタするため待機
+                time.sleep(1)
                 errors = self.robot.get_cur_error_info_all()
                 print(f"[CNT]: Error in control loop: {errors}")
                 # 自動復帰可能エラー
