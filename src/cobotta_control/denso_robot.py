@@ -1633,3 +1633,18 @@ class DensoRobot:
                 int(error["error_code"], 16)
             ) in stateless_errors
         for error in errors)
+
+    def is_enabled(self) -> bool:
+        """
+        モータがONかどうか。
+        スレーブモードでも実行可能。
+        """
+        # PacScriptにはMotorStateというモータのON/OFFを取得する関数があるが
+        # b-CAPには対応していない (少なくとも開発環境でのバージョンでは)
+        # そこで、全軸のサーボ内部データを取得する関数を使用する
+        # 引数2でモータ角度偏差を指定して取得する
+        # ret: Annotated[List[float], 8]
+        # 実行時間は約3 ms
+        ret = self._bcap.robot_execute(self._hRob, "GetSrvData", 2)
+        # 観測範囲では、モータがOFFのときのみ0になるため利用
+        return sum(ret) != 0
