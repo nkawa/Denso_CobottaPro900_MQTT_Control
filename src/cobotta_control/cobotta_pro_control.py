@@ -470,8 +470,18 @@ class Cobotta_Pro_CON:
         self.pose[14] = 0
 
     def control_loop_w_recover_automatic(self):
-        self.pose[15] = 1
-        self.enter_servo_mode()
+        try:
+            self.pose[15] = 1
+            self.enter_servo_mode()
+        # モーターがOFFなどの理由でスレーブモードに入れない場合
+        # self.pose[15]を0に戻す
+        except ORiNException as e:
+            print("[CNT]: Error entering servo mode")
+            print(f"[CNT]: {self.robot.format_error(e)}")
+            self.leave_servo_mode()
+            self.pose[15] = 0
+            return
+
         while True:
             successfully_stopped = self.control_loop()
             self.leave_servo_mode()
