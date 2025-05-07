@@ -98,6 +98,9 @@ class Cobotta_Pro_CON:
             hand_host=HAND_IP,
         )
         self.robot.start()
+        self.robot.set_tool()
+        if self.robot._use_hand:
+            assert self.robot.setup_hand()
 
     def init_realtime(self):
         os_used = sys.platform
@@ -432,7 +435,7 @@ class Cobotta_Pro_CON:
             self.robot.TwofgReleaseXmlRpc(waiting=0)
 
     def enable(self) -> bool:
-        self.robot.enable_wo_clear_error()
+        self.robot.enable_robot()
 
     def disable(self) -> bool:
         self.robot.disable()

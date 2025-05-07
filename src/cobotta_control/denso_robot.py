@@ -173,10 +173,18 @@ class DensoRobot:
         # [0.0, 0.0, 160.0, 0.0, 0.0, 0.0]
         self._tool_def = self.GetToolDef(self._tool)
 
-    def wait_until_set_tool(self, timeout: float = 60) -> bool:
+    def set_tool(self) -> None:
+        # ロボットの軸の制御権
+        # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
+        self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
         cur_tool = self.CurTool()
+        if cur_tool != self._tool:
+            self.robot_change(f"Tool{self._tool}")
+
+    def wait_until_set_tool(self, timeout: float = 60) -> bool:
         t_start = time.time()
         while True:
+            cur_tool = self.CurTool()
             if cur_tool == self._tool:
                 return True
             if time.time() - t_start > timeout:
@@ -268,6 +276,18 @@ class DensoRobot:
         if self._use_hand:
             if not self.setup_hand():
                 return False
+        # 外部速度(%)の設定
+        # スレーブモードでは外部速度は反映されない
+        self._bcap.robot_execute(self._hRob, "ExtSpeed", [20])
+        self._bcap.robot_execute(self._hRob, "Motor", 1)
+        return True
+    
+    def enable_robot(self) -> None:
+        # STO状態（セーフティ状態）を解除する
+        self.manual_reset()
+        # ロボットの軸の制御権
+        # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
+        self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
         # 外部速度(%)の設定
         # スレーブモードでは外部速度は反映されない
         self._bcap.robot_execute(self._hRob, "ExtSpeed", [20])
