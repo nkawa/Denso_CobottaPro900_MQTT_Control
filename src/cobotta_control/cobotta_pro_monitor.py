@@ -50,7 +50,9 @@ class Cobotta_Pro_MON:
             hand_host=HAND_IP,
         )
         self.robot.start()
-        self.robot.enable_monitor_only()
+        assert self.robot.wait_until_set_tool(timeout=60)
+        if self.robot._use_hand:
+            assert self.robot.setup_hand()
 
     def init_realtime(self):
         os_used = sys.platform
@@ -124,39 +126,57 @@ class Cobotta_Pro_MON:
             else:
                 width = None
                 force = None
+            
+            # モータがONか
+            enabled = self.robot.is_enabled()
+            actual_joint_js["enabled"] = enabled
 
-            # エラーなしまたは制御プロセスでエラー対応成功
+            error = {}
+            # スレーブモード中にエラー情報を取得しようとすると、
+            # スレーブモードが切断される。
+            # 本プロセスでロボットがスレーブモードでないと判断した直後に、
+            # 別プロセスでスレーブモードに入る可能性があるので、
+            # 通常モードの場合のみ呼び出す
+            # TODO: self.pose[14]を評価後からget_cur_error_info_allを呼ぶ前に
+            # スレーブモードに入る可能性もある
+            # この可能性を許容してエラー対応をするか厳密な状態管理をするか
+            # エラー対応をすると制御プロセスで繰り返しスレーブモードON→
+            # 状態取得プロセスでスレーブモードOFFの輪廻になる可能性あり
+            # 通常モードの時は制御プロセスをロックしても良いので厳密な状態管理をする
             if self.pose[14] == 0:
-                error = {}
-            # 制御プロセスでエラー検出
-            elif self.pose[14] == 1:
-                # ControlとMonitorのコントローラ名はそれぞれ異なるが
-                # Controlがスレーブモードに入れば、
-                # Monitorもスレーブモードに入る
-                # スレーブモードでないときしか
-                # エラー情報を取得できない
-                if self.robot.is_in_servo_mode():
-                    self.robot.leave_servo_mode()
-                # 現在のエラー
+                actual_joint_js["servo_mode"] = False
                 errors = self.robot.get_cur_error_info_all()
-                error = {"errors": errors}
-                # 自動復帰可能エラー
-                if self.robot.are_all_errors_stateless(errors):
-                    self.pose[14] = 2
-                    error["auto_recoverable"] = True
-                # 復帰にユーザーの対応を求めるエラー
-                else:
-                    self.pose[14] = 3
-                    error["auto_recoverable"] = False
-            # 上以外は対応中のエラーをerrorsとして出力しつづける
-            if not error:
+                # 制御プロセスのエラー検出と方法が違うので、
+                # 直後は状態プロセスでエラーが検出されないことがある
+                # その場合は次のループに検出を持ち越す
+                if len(errors) > 0:
+                    error = {"errors": errors}
+                    # 自動復帰可能エラー
+                    if self.robot.are_all_errors_stateless(errors):
+                        error["auto_recoverable"] = True
+                    # 復帰にユーザーの対応を求めるエラー
+                    else:
+                        error["auto_recoverable"] = False
+            else:
+                actual_joint_js["servo_mode"] = True
+            if self.pose[15] == 0:
+                actual_joint_js["mqtt_control"] = "OFF"
+            elif self.pose[15] == 1:
+                actual_joint_js["mqtt_control"] = "ON"
+            elif self.pose[15] == 2:
+                actual_joint_js["mqtt_control"] = "Stopping"
+
+            if error:
                 actual_joint_js["error"] = error
 
             self.pose[:len(actual_joint)] = actual_joint
 
             if now-last > 0.3:
-                self.client.publish(MQTT_ROBOT_STATE_TOPIC,
-                                    json.dumps(actual_joint_js))
+                jss = json.dumps(actual_joint_js)
+                self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
+                with self.monitor_lock:
+                    self.monitor_dict.clear()
+                    self.monitor_dict.update(actual_joint_js)
                 last = now
 
             if save_state:
@@ -169,6 +189,7 @@ class Cobotta_Pro_MON:
                     forces=forces,
                     error=error,
                     time=now,
+                    enabled=enabled,
                 )
                 js = json.dumps(datum, ensure_ascii=False)
                 f.write(js + "\n")
@@ -178,9 +199,11 @@ class Cobotta_Pro_MON:
             if t_wait > 0:
                 time.sleep(t_wait)
 
-    def run_proc(self):
+    def run_proc(self, monitor_dict, monitor_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.monitor_dict = monitor_dict
+        self.monitor_lock = monitor_lock
 
         self.init_realtime()
         self.init_robot()

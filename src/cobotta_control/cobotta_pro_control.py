@@ -66,10 +66,15 @@ n_windows *= int(0.008 / t_intv)
 use_hand = True
 hand_mode: Literal["b-CAP", "xmlrpc"] = "xmlrpc"
 reset_default_state = True
-# TCPが台の中心の上に来る初期位置
-# default_joint = [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, 94.7038]
-# NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-default_joint = [159.3784, 10.08485, 122.90902, 151.10866, -43.20116 + 90, 20.69275]
+default_joints = {
+    # TCPが台の中心の上に来る初期位置
+    "tidy": [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, 94.7038],
+    # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
+    "vr": [159.3784, 10.08485, 122.90902, 151.10866, -43.20116 + 90, 20.69275],
+    # NOTE: 2025/04/18 19:25の新しい位置?VRとの対応がおかしい気がする
+    # 毎回の値も[0, 0, 0, 0, 0, 0]が飛んでくる気がする
+    "vr2": [115.55677, 5.86272, 135.70465, 110.53529, -15.55474 + 90, 35.59977],
+}
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
@@ -81,7 +86,8 @@ if save_control:
 
 class Cobotta_Pro_CON:
     def __init__(self):
-        pass
+        self.default_joint = default_joints["vr"]
+        self.tidy_joint = default_joints["tidy"]
 
     def init_robot(self):
         self.robot = DensoRobot(
@@ -92,16 +98,9 @@ class Cobotta_Pro_CON:
             hand_host=HAND_IP,
         )
         self.robot.start()
-        self.robot.enable()
-        if reset_default_state:
-            self.default_joint = default_joint
-            self.robot.move_joint_until_completion(self.default_joint)
-            if hand_mode == "b-CAP":
-                self.robot.TwofgRelease()
-            else:
-                self.robot.TwofgReleaseXmlRpc()
-            time.sleep(1)
-        self.robot.enter_servo_mode()
+        self.robot.set_tool()
+        if self.robot._use_hand:
+            assert self.robot.setup_hand()
 
     def init_realtime(self):
         os_used = sys.platform
@@ -121,7 +120,7 @@ class Cobotta_Pro_CON:
     def control_loop(self):
         self.last = 0
         print("[CNT]Start Main Loop")
-        while self.loop:
+        while True:
             # NOTE: テスト用データなど、時間が経つにつれて
             # targetの値がstateの値によらずにどんどん
             # 変化していく場合は、以下で待ちすぎると
@@ -135,12 +134,18 @@ class Cobotta_Pro_CON:
             if self.pose[0:6].sum() == 0:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for monitoring..")
+                # 取得する前に終了する場合即時終了可能
+                if self.pose[15] == 2:
+                    break
                 continue
 
             # 目標値を取得しているかを確認
             if self.pose[6:12].sum() == 0:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for target..")
+                # 取得する前に終了する場合即時終了可能
+                if self.pose[15] == 2:
+                    break
                 continue 
 
             # 関節の状態値
@@ -187,9 +192,12 @@ class Cobotta_Pro_CON:
                 self.last_control_velocity = None
                 continue
 
-            # target_delayedは、delay秒前の目標値を前後の値を
-            # 使って線形補間したもの
-            target = self.pose[6:12].copy()
+            # リアルタイム制御を止める場合は入ってくる目標値を同じにして
+            # ロボットを静止させる
+            if self.pose[15] == 2:
+                target = self.last_target
+            else:
+                target = self.pose[6:12].copy()
             target_raw = target
 
             # HACK: 現状、例えば、関節の角度が175度から180度をまたぎ185度に変化するとき、
@@ -213,10 +221,13 @@ class Cobotta_Pro_CON:
                 # print("[CNT]: Warning: target reached maximum threshold")
             target = target_th
 
+            # target_delayedは、delay秒前の目標値を前後の値を
+            # 使って線形補間したもの
             if use_interp:
                 target_delayed = di.read(now, target)
             else:
                 target_delayed = target
+            self.last_target_delayed = target_delayed
 
             # 平滑化
             if filter_kind == "original":
@@ -309,7 +320,6 @@ class Cobotta_Pro_CON:
                 control = self.last_control + target_diff_speed_limited
                 # 登録するだけ
                 _filter.filter(control)
-                self.last_control = control
             elif filter_kind == "target":
                 control = last_target_filtered + target_diff_speed_limited
             elif filter_kind == "state_and_target_diff":
@@ -318,7 +328,6 @@ class Cobotta_Pro_CON:
                 control = state + target_diff_speed_limited
             elif filter_kind == "control_and_target_diff":
                 control = last_target_filtered + target_diff_speed_limited
-                self.last_control = control
             else:
                 raise ValueError
 
@@ -397,8 +406,14 @@ class Cobotta_Pro_CON:
                 if t_wait > 0:
                     time.sleep(t_wait)
 
+            if self.pose[15] == 2:
+                # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
+                # ロボットを停止させてスレーブモードを解除可能な状態になる
+                if (control == self.last_control).all():
+                    return True
+                
+            self.last_control = control
             self.last = now
-        return True
 
     def send_grip(self, force: int = 20):
         if hand_mode == "b-CAP":
@@ -419,40 +434,118 @@ class Cobotta_Pro_CON:
             self.robot.TwofgStopXmlRpc()
             self.robot.TwofgReleaseXmlRpc(waiting=0)
 
-    def on_control_loop_error(self):
-        # エラー検出
-        self.pose[14] = 1
-        while True:
-            # モニタプロセスで自動復帰エラーと判定
-            if self.pose[14] == 2:
-                # 自動復帰を試行。失敗したらエラーでプログラム終了
-                self.robot.recover_automatic_servo(max_trials=1)
-                # エラー処理状況以外初期化
-                self.pose[:14] = 0
-                # 制御プロセスでエラー対応成功
-                self.pose[14] = 0
-                return True
-            # 復帰にユーザーの対応を求めるエラーにユーザーからの対応を検出済みの場合
-            # TODO: エラーの種類によって対応を変えるので、4以降の数字も増えるかも
-            elif self.pose[14] == 4:
-                # とりあえず何もしない
-                raise NotImplementedError
+    def enable(self) -> bool:
+        self.robot.enable_robot()
 
-    def run_proc(self):
+    def disable(self) -> bool:
+        self.robot.disable()
+
+    def default_pose(self) -> bool:
+        self.robot.move_joint_until_completion(self.default_joint)
+
+    def tidy_pose(self):
+        self.robot.move_joint_until_completion(self.tidy_joint)
+
+    def clear_error(self) -> bool:
+        self.robot.clear_error()
+
+    def enter_servo_mode(self):
+        # self.pose[14]は0のとき必ず通常モード。
+        # self.pose[14]は1のとき基本的にスレーブモードだが、
+        # 変化前後の短い時間は通常モードの可能性がある。
+        # 順番固定
+        self.pose[14] = 1
+        self.robot.enter_servo_mode()
+
+    def leave_servo_mode(self):
+        # self.pose[14]は0のとき必ず通常モード。
+        # self.pose[14]は1のとき基本的にスレーブモードだが、
+        # 変化前後の短い時間は通常モードの可能性がある。
+        # 順番固定
+        self.robot.leave_servo_mode()
+        while True:
+            if not self.robot.is_in_servo_mode():
+                break
+            time.sleep(0.008)
+        self.pose[14] = 0
+
+    def control_loop_w_recover_automatic(self):
+        try:
+            self.pose[15] = 1
+            self.enter_servo_mode()
+        # モーターがOFFなどの理由でスレーブモードに入れない場合
+        # self.pose[15]を0に戻す
+        except ORiNException as e:
+            print("[CNT]: Error entering servo mode")
+            print(f"[CNT]: {self.robot.format_error(e)}")
+            self.leave_servo_mode()
+            self.pose[15] = 0
+            return
+
+        while True:
+            successfully_stopped = self.control_loop()
+            self.leave_servo_mode()
+            if successfully_stopped:
+                print("[CNT]: User required stop and successfully done")
+                break
+            else:
+                # 自動復帰の前にエラーを確実にモニタするため待機
+                time.sleep(1)
+                errors = self.robot.get_cur_error_info_all()
+                print(f"[CNT]: Error in control loop: {errors}")
+                # ユーザーが停止させようとしてきちんと停止しなかった場合
+                # エラーによらず通常モードに戻る。
+                if self.pose[15] == 2:
+                    print("[CNT]: User required stop and not successfully done")
+                    break
+                # 自動復帰可能エラー
+                elif self.robot.are_all_errors_stateless(errors):
+                    # 自動復帰を試行。失敗またはエラーの場合は通常モードに戻る。
+                    try:
+                        # エラー直後の自動復帰処理に失敗しても、
+                        # 同じ復帰処理を手動で行うと成功することもあるので
+                        # 手動で操作が可能な状態に戻す
+                        ret = self.robot.recover_automatic_enable()
+                        if not ret:
+                            print("[CNT]: Cannot automatically recover enable")
+                            break
+                        self.enter_servo_mode()
+                        continue
+                    # NOTE: 検証用。エラー処理が確立すれば不要と思われる
+                    except ORiNException as e:
+                        print("[CNT]: Error during automatic recover")
+                        print(f"[CNT]: {self.robot.format_error(e)}")
+                        self.leave_servo_mode()
+                        break
+                # 自動復帰不可能エラー
+                else:
+                    print("[CNT]: Error is not automatically recoverable")
+                    break
+        self.pose[15] = 0
+
+    def run_proc(self, control_pipe):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
-
-        self.loop = True
-        self.init_realtime()
-        print("[CNT]:start realtime")
+        
         self.init_robot()
-        print("[CNT]:init robot")
-
+        self.init_realtime()
         while True:
-            if self.control_loop():
-                sys.exit(0)
-            else:            
-                if self.on_control_loop_error():
-                   continue
-                else:
-                    sys.exit(1)
+            command = control_pipe.recv()
+            try:
+                if command["command"] == "enable":
+                    self.enable()
+                if command["command"] == "disable":
+                    self.disable()
+                elif command["command"] == "default_pose":
+                    self.default_pose()
+                elif command["command"] == "tidy_pose":
+                    self.tidy_pose()
+                elif command["command"] == "release_hand":
+                    self.send_release()
+                elif command["command"] == "clear_error":
+                    self.clear_error()
+                elif command["command"] == "start_rt_control":
+                    self.control_loop_w_recover_automatic()
+            except Exception as e:
+                self.leave_servo_mode()
+                print(f"[CNT]: {self.robot.format_error(e)}")

@@ -158,8 +158,6 @@ class DensoRobot:
         self._hCtrl = self._bcap.controller_connect("", "CaoProv.DENSO.VRC9", "localhost", self.controller_connect_option)
         self._hRob = self._bcap.controller_getrobot(self._hCtrl, "Robot")
         self._interval = 0.008
-        # ティーチングペンダントのエラーをクリアするまえは現在のエラーの数は不明
-        self.n_current_error_infos = None
         self._default_pose = [560, 150, 460, 180, 0, 90]
 
         # self._bcap_hand = BCAPClient(self.host, self.port, self.timeout)
@@ -175,7 +173,31 @@ class DensoRobot:
         # [0.0, 0.0, 160.0, 0.0, 0.0, 0.0]
         self._tool_def = self.GetToolDef(self._tool)
 
+    def set_tool(self) -> None:
+        # ロボットの軸の制御権
+        # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
+        self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
+        cur_tool = self.CurTool()
+        if cur_tool != self._tool:
+            self.robot_change(f"Tool{self._tool}")
+
+    def wait_until_set_tool(self, timeout: float = 60) -> bool:
+        t_start = time.time()
+        while True:
+            cur_tool = self.CurTool()
+            if cur_tool == self._tool:
+                return True
+            if time.time() - t_start > timeout:
+                return False
+            time.sleep(1)
+
     def enable_monitor_only(self):
+        """
+        状態取得用のロボットのセットアップ。
+        ツール座標系の変更時にエラーが出ることがあるので使用非推奨。
+        関数内部でツール座標系を変更するのではなく外から明示的に変更するか
+        しないか決めるのが望ましい。
+        """
         logger.info("enable_monitor_only")
         # STO状態（セーフティ状態）を解除する
         self.manual_reset()
@@ -194,8 +216,8 @@ class DensoRobot:
         # したがってツール座標系を変更する必要がない場合は制御権を取得しないように
         # している
 
-        # TODO: 特にアームのコントローラを再起動した後の1回目に失敗するのでここで
-        # 変更するのはやめる
+        # アームのコントローラを再起動した後の1回目に失敗することがあるので
+        # ここで変更するのはよくない
         cur_tool = self.CurTool()
         if cur_tool != self._tool:
             # ロボットの軸の制御権
@@ -211,26 +233,40 @@ class DensoRobot:
             if not ret:
                 logger.error("Hand is not connected")
                 return False
-            # TODO: ハンドパラメータの設定
             self._default_grip_width = self._twofg.get_min_ext_width()
             self._default_release_width = self._twofg.get_max_ext_width()
 
-    def manual_reset(self):
+    def manual_reset(self) -> None:
         # STO状態（セーフティ状態）を解除する
-        return self._bcap.controller_execute(self._hCtrl, "ManualReset")
+        # このコマンドの前にセーフティ状態が解除できる状態になっていなければならない
+        # 例えば非常停止ボタンをONにしてセーフティ状態に入った場合
+        # OFFにしてからこのコマンドを実行しなければセーフティ状態は解除できない
+        # さもなくばエラー(0x83500178「非常停止ON中は実行できません。」が出る)
+        self._bcap.controller_execute(self._hCtrl, "ManualReset")
 
-    def clear_error(self):
-        # ティーチングペンダントのエラーをクリアする
-        ret = self._bcap.controller_execute(self._hCtrl, "ClearError")
-        self.n_current_error_infos = 0
-        return ret
+    def clear_error(self) -> None:
+        """
+        ティーチングペンダントのエラーをクリアする。
+        GetCurErrorInfoなどで取得できるエラーもクリアする。
+        例えば、非常停止中でもエラーをクリアすることはできるが、
+        非常停止状態がOFFになるわけではないため、
+        その後一部のコマンドが実行できないことに注意。
+        気軽にクリアしてしまうと現在のエラーがわからなくなるので注意。
+        """
+        self._bcap.controller_execute(self._hCtrl, "ClearError")
 
     def enable(self) -> bool:
-        logger.info("enable")
         # STO状態（セーフティ状態）を解除する
         self.manual_reset()
         # ティーチングペンダントのエラーをクリアする
         self.clear_error()
+        self.enable_wo_clear_error()
+
+    def enable_wo_clear_error(self) -> None:
+        # Cobotta Proの手動モードではイネーブル前に
+        # マニュアルリセットするのでそれに倣ったフローにしている
+        # STO状態（セーフティ状態）を解除する
+        self.manual_reset()
         # ロボットの軸の制御権
         # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
         self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
@@ -240,6 +276,18 @@ class DensoRobot:
         if self._use_hand:
             if not self.setup_hand():
                 return False
+        # 外部速度(%)の設定
+        # スレーブモードでは外部速度は反映されない
+        self._bcap.robot_execute(self._hRob, "ExtSpeed", [20])
+        self._bcap.robot_execute(self._hRob, "Motor", 1)
+        return True
+    
+    def enable_robot(self) -> None:
+        # STO状態（セーフティ状態）を解除する
+        self.manual_reset()
+        # ロボットの軸の制御権
+        # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
+        self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
         # 外部速度(%)の設定
         # スレーブモードでは外部速度は反映されない
         self._bcap.robot_execute(self._hRob, "ExtSpeed", [20])
@@ -279,7 +327,6 @@ class DensoRobot:
             if not ret:
                 logger.error("Hand is not connected")
                 return False
-            # TODO: ハンドパラメータの設定
             self._default_grip_width = self._twofg.get_min_ext_width()
             self._default_release_width = self._twofg.get_max_ext_width()
             return True
@@ -475,6 +522,10 @@ class DensoRobot:
             return 0
 
     def is_in_servo_mode(self) -> bool:
+        """
+        スレーブモード中にあるかどうか。
+        非常停止中も実行できる。
+        """
         return self._bcap.robot_execute(self._hRob, "slvGetMode") != 0x000
 
     def enter_servo_mode_by_mode(self, mode: int = 0x001):
@@ -633,32 +684,16 @@ class DensoRobot:
             self.recover_automatic_servo()
 
     def StoState(self) -> bool:
-        """STO 状態（セーフティ状態）を返します"""
+        """
+        STO 状態（セーフティ状態）を返します。
+        非常停止中も実行できます。
+        """
         return self._bcap.controller_execute(self._hCtrl, "StoState")
-
-    def get_new_cur_error_info_all(self) -> List[Dict[str, Any]]:
-        """
-        現在発生しているエラーの情報を返す。
-        前回この関数を呼び出したときから新たに増えたエラーだけ返す
-        """
-        # スレーブモード時実行不可
-        n_current_error_infos = self._bcap.controller_execute(self._hCtrl, "GetCurErrorCount")
-        # エラーの数が不明な時 (起動時) の対応
-        if self.n_current_error_infos is None:
-            n_new = n_current_error_infos
-        else:
-            n_new = n_current_error_infos - self.n_current_error_infos
-        self.n_current_error_infos = n_current_error_infos
-        # iは0が最新なので古い順から返す
-        infos = []
-        for i in list(range(n_new))[::-1]:
-            info = self.get_cur_error_info(i)
-            infos.append(info)
-        return infos
 
     def get_cur_error_info_all(self) -> List[Dict[str, Any]]:
         """
         現在発生しているエラーの情報を返す。
+        非常停止中も実行できる。
         """
         # スレーブモード時実行不可
         n_current_error_infos = self._bcap.controller_execute(self._hCtrl, "GetCurErrorCount")
@@ -765,6 +800,10 @@ class DensoRobot:
         return ret == 0
 
     def recover_automatic_servo(self, max_trials: int = 3):
+        """
+        エラー状態からスレーブモードまで自動復帰する。
+        recover_automatic_enableの使用を推奨。
+        """
         # 以下の方法で復帰できるエラーに対してのみ呼ぶこと
         # 頻繁に呼ばれうるので無駄な処理は入れないこと
 
@@ -822,6 +861,25 @@ class DensoRobot:
                     raise e
             except Exception as e:
                 raise e
+    
+    def recover_automatic_enable(self, timeout: float = 10) -> bool:
+        """エラー状態からイネーブル状態まで自動復帰する"""
+        # STO状態（セーフティ状態）を解除する
+        self.manual_reset()
+        # ティーチングペンダントのエラーをクリアする
+        self.clear_error()
+        # モータをONにし、完了待ちする
+        # 観測範囲では完了してもモータがONでないことがある
+        self._bcap.robot_execute(self._hRob, "Motor", [1, 0])
+        t_start = time.time()
+        while True:
+            # モータがONかを別の方法で確認する
+            if self.is_enabled():
+                return True
+            else:
+                if time.time() - t_start > timeout:
+                    return False
+            time.sleep(0.008)
 
     def _add_fig_if_necessary(self, pose):
         assert len(pose) in [6, 7]
@@ -839,6 +897,7 @@ class DensoRobot:
     def get_current_joint(self):
         # コントローラ内部で一定周期（8ms）に更新された現在位置をJ 型で取得する
         # 8関節分出るがCobotta Pro 900は6関節分のみ有効
+        # 非常停止中も実行できる
         cur_jnt = self._bcap.robot_execute(self._hRob, "CurJnt")
         return cur_jnt[:6]
 
@@ -1593,6 +1652,7 @@ class DensoRobot:
         """
         センサ値の力[N]とモーメント[Nm]。内訳は[X, Y, Z, RX, RY, RZ]。
         引数13で取得可能。
+        非常停止中も実行できる。
         """
         return self._bcap.robot_execute(self._hRob, "ForceValue", [13, 0])
 
@@ -1607,3 +1667,18 @@ class DensoRobot:
                 int(error["error_code"], 16)
             ) in stateless_errors
         for error in errors)
+
+    def is_enabled(self) -> bool:
+        """
+        モータがONかどうか。
+        スレーブモードでも実行可能。
+        """
+        # PacScriptにはMotorStateというモータのON/OFFを取得する関数があるが
+        # b-CAPには対応していない (少なくとも開発環境でのバージョンでは)
+        # そこで、全軸のサーボ内部データを取得する関数を使用する
+        # 引数2でモータ角度偏差を指定して取得する
+        # ret: Annotated[List[float], 8]
+        # 実行時間は約3 ms
+        ret = self._bcap.robot_execute(self._hRob, "GetSrvData", 2)
+        # 観測範囲では、モータがOFFのときのみ0になるため利用
+        return sum(ret) != 0
