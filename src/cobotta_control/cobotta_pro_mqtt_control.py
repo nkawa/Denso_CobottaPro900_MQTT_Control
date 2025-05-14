@@ -122,7 +122,7 @@ class Cobotta_Pro_MQTT:
 
     def run_proc(self):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
 
         self.connect_mqtt()
 
@@ -130,7 +130,7 @@ class Cobotta_Pro_MQTT:
 class Cobotta_Pro_Debug:
     def run_proc(self, monitor_dict):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         while True:
             diff = self.ar[6:12]-self.ar[0:6]
             diff *=1000
@@ -158,7 +158,7 @@ class ProcessManager:
         # [15]: 0: mqtt_control実行中でない
         #       1: mqtt_control実行中
         #       2: mqtt_control実行中だが停止命令中
-        self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
+        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
         self.monitor_dict = self.manager.dict()

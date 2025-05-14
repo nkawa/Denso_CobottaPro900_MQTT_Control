@@ -526,7 +526,7 @@ class Cobotta_Pro_CON:
 
     def run_proc(self, control_pipe, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.slave_mode_lock = slave_mode_lock
  
         self.init_robot()

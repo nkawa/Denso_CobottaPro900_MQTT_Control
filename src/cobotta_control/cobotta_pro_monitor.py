@@ -196,7 +196,7 @@ class Cobotta_Pro_MON:
 
     def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
         self.monitor_lock = monitor_lock
         self.slave_mode_lock = slave_mode_lock
