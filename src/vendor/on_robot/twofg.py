@@ -248,7 +248,7 @@ class TWOFG():
                     print("2FG external grip command timeout")
                     break
             else:
-                RET_OK
+                return RET_OK
             return RET_FAIL
         else:
             return RET_OK
