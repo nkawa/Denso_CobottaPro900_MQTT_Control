@@ -145,7 +145,7 @@ class Cobotta_Pro_Debug:
 class ProcessManager:
     def __init__(self):
         # mp.set_start_method('spawn')
-        sz = 32* np.dtype('float').itemsize
+        sz = 32 * np.dtype('float32').itemsize
         try:
             self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name='cobotta_pro')
         except FileExistsError:
