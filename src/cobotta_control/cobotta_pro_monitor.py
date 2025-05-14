@@ -137,28 +137,23 @@ class Cobotta_Pro_MON:
             # 本プロセスでロボットがスレーブモードでないと判断した直後に、
             # 別プロセスでスレーブモードに入る可能性があるので、
             # 通常モードの場合のみ呼び出す
-            # TODO: self.pose[14]を評価後からget_cur_error_info_allを呼ぶ前に
-            # スレーブモードに入る可能性もある
-            # この可能性を許容してエラー対応をするか厳密な状態管理をするか
-            # エラー対応をすると制御プロセスで繰り返しスレーブモードON→
-            # 状態取得プロセスでスレーブモードOFFの輪廻になる可能性あり
-            # 通常モードの時は制御プロセスをロックしても良いので厳密な状態管理をする
-            if self.pose[14] == 0:
-                actual_joint_js["servo_mode"] = False
-                errors = self.robot.get_cur_error_info_all()
-                # 制御プロセスのエラー検出と方法が違うので、
-                # 直後は状態プロセスでエラーが検出されないことがある
-                # その場合は次のループに検出を持ち越す
-                if len(errors) > 0:
-                    error = {"errors": errors}
-                    # 自動復帰可能エラー
-                    if self.robot.are_all_errors_stateless(errors):
-                        error["auto_recoverable"] = True
-                    # 復帰にユーザーの対応を求めるエラー
-                    else:
-                        error["auto_recoverable"] = False
-            else:
-                actual_joint_js["servo_mode"] = True
+            with self.slave_mode_lock:
+                if self.pose[14] == 0:
+                    actual_joint_js["servo_mode"] = False
+                    errors = self.robot.get_cur_error_info_all()  
+                    # 制御プロセスのエラー検出と方法が違うので、
+                    # 直後は状態プロセスでエラーが検出されないことがある
+                    # その場合は次のループに検出を持ち越す
+                    if len(errors) > 0:
+                        error = {"errors": errors}
+                        # 自動復帰可能エラー
+                        if self.robot.are_all_errors_stateless(errors):
+                            error["auto_recoverable"] = True
+                        # 復帰にユーザーの対応を求めるエラー
+                        else:
+                            error["auto_recoverable"] = False
+                else:
+                    actual_joint_js["servo_mode"] = True
             if self.pose[15] == 0:
                 actual_joint_js["mqtt_control"] = "OFF"
             elif self.pose[15] == 1:
@@ -199,11 +194,12 @@ class Cobotta_Pro_MON:
             if t_wait > 0:
                 time.sleep(t_wait)
 
-    def run_proc(self, monitor_dict, monitor_lock):
+    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
         self.monitor_lock = monitor_lock
+        self.slave_mode_lock = slave_mode_lock
 
         self.init_realtime()
         self.init_robot()

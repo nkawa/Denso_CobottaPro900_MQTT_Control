@@ -454,7 +454,8 @@ class Cobotta_Pro_CON:
         # self.pose[14]は1のとき基本的にスレーブモードだが、
         # 変化前後の短い時間は通常モードの可能性がある。
         # 順番固定
-        self.pose[14] = 1
+        with self.slave_mode_lock:
+            self.pose[14] = 1
         self.robot.enter_servo_mode()
 
     def leave_servo_mode(self):
@@ -523,10 +524,11 @@ class Cobotta_Pro_CON:
                     break
         self.pose[15] = 0
 
-    def run_proc(self, control_pipe):
+    def run_proc(self, control_pipe, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
-        
+        self.slave_mode_lock = slave_mode_lock
+ 
         self.init_robot()
         self.init_realtime()
         while True:

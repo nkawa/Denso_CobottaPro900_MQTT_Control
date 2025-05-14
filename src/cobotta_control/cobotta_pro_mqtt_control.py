@@ -163,6 +163,7 @@ class ProcessManager:
         self.manager = multiprocessing.Manager()
         self.monitor_dict = self.manager.dict()
         self.monitor_lock = self.manager.Lock()
+        self.slave_mode_lock = multiprocessing.Lock()
         self.main_pipe, self.control_pipe = multiprocessing.Pipe()
         self.state_recv_mqtt = False
         self.state_monitor = False
@@ -178,7 +179,7 @@ class ProcessManager:
         self.mon = Cobotta_Pro_MON()
         self.monP = Process(
             target=self.mon.run_proc,
-            args=(self.monitor_dict, self.monitor_lock),
+            args=(self.monitor_dict, self.monitor_lock, self.slave_mode_lock),
             name="Cobotta-Pro-monitor")
         self.monP.start()
         self.state_monitor = True
@@ -187,7 +188,7 @@ class ProcessManager:
         self.ctrl = Cobotta_Pro_CON()
         self.ctrlP = Process(
             target=self.ctrl.run_proc,
-            args=(self.control_pipe,),
+            args=(self.control_pipe, self.slave_mode_lock),
             name="Cobotta-Pro-control")
         self.ctrlP.start()
         self.state_control = True
