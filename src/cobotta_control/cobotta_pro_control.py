@@ -135,8 +135,8 @@ class Cobotta_Pro_CON:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
-                if self.pose[15] == 2:
-                    break
+                if self.pose[16] == 1:
+                    return True
                 continue
 
             # 目標値を取得しているかを確認
@@ -144,8 +144,8 @@ class Cobotta_Pro_CON:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for target..")
                 # 取得する前に終了する場合即時終了可能
-                if self.pose[15] == 2:
-                    break
+                if self.pose[16] == 1:
+                    return True
                 continue 
 
             # 関節の状態値
@@ -194,7 +194,7 @@ class Cobotta_Pro_CON:
 
             # リアルタイム制御を止める場合は入ってくる目標値を同じにして
             # ロボットを静止させる
-            if self.pose[15] == 2:
+            if self.pose[16] == 1:
                 target = self.last_target
             else:
                 target = self.pose[6:12].copy()
@@ -406,7 +406,7 @@ class Cobotta_Pro_CON:
                 if t_wait > 0:
                     time.sleep(t_wait)
 
-            if self.pose[15] == 2:
+            if self.pose[16] == 1:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
                 if (control == self.last_control).all():
@@ -481,6 +481,7 @@ class Cobotta_Pro_CON:
             print(f"[CNT]: {self.robot.format_error(e)}")
             self.leave_servo_mode()
             self.pose[15] = 0
+            self.pose[16] = 0
             return
 
         while True:
@@ -496,7 +497,7 @@ class Cobotta_Pro_CON:
                 print(f"[CNT]: Error in control loop: {errors}")
                 # ユーザーが停止させようとしてきちんと停止しなかった場合
                 # エラーによらず通常モードに戻る。
-                if self.pose[15] == 2:
+                if self.pose[16] == 1:
                     print("[CNT]: User required stop and not successfully done")
                     break
                 # 自動復帰可能エラー
@@ -523,6 +524,7 @@ class Cobotta_Pro_CON:
                     print("[CNT]: Error is not automatically recoverable")
                     break
         self.pose[15] = 0
+        self.pose[16] = 0
 
     def run_proc(self, control_pipe, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")

@@ -156,10 +156,8 @@ class Cobotta_Pro_MON:
                     actual_joint_js["servo_mode"] = True
             if self.pose[15] == 0:
                 actual_joint_js["mqtt_control"] = "OFF"
-            elif self.pose[15] == 1:
+            else:
                 actual_joint_js["mqtt_control"] = "ON"
-            elif self.pose[15] == 2:
-                actual_joint_js["mqtt_control"] = "Stopping"
 
             if error:
                 actual_joint_js["error"] = error

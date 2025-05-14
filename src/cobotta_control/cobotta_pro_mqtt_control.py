@@ -155,9 +155,8 @@ class ProcessManager:
         # [6:12]: 関節の目標値
         # [13]: ハンドの目標値
         # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
-        # [15]: 0: mqtt_control実行中でない
-        #       1: mqtt_control実行中
-        #       2: mqtt_control実行中だが停止命令中
+        # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
+        # [16]: 1: mqtt_control停止命令
         self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -228,7 +227,7 @@ class ProcessManager:
     def stop_mqtt_control(self):
         # mqtt_control中のみシグナルを出す
         if self.ar[15] == 1:
-            self.ar[15] = 2
+            self.ar[16] = 1
 
     def get_current_monitor_log(self):
         with self.monitor_lock:
