@@ -538,7 +538,7 @@ class Cobotta_Pro_CON:
             try:
                 if command["command"] == "enable":
                     self.enable()
-                if command["command"] == "disable":
+                elif command["command"] == "disable":
                     self.disable()
                 elif command["command"] == "default_pose":
                     self.default_pose()
