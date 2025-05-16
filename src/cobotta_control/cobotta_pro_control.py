@@ -1,6 +1,6 @@
 # Cobotta Proを制御する
 
-from typing import Literal
+from typing import Any, Dict, Literal, Optional
 import datetime
 import time
 
@@ -79,6 +79,44 @@ abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
 
+# ホルダーの座標系は、ベース座標系（ツール座標系ではない）であることに注意
+tool_infos = [
+    {
+        "id": -1,
+        "name": "no_tool",
+        "id_in_robot": 0,
+    },
+    {
+        "id": 1,
+        "name": "onrobot_2fg7",
+        "holder_waypoints": {
+            "enter_path": [530, 480, 200, 180, 0, 90],
+            "disengaged": [530, 480, 50, 180, 0, 90],
+            "tool_holder": [530, 480, 0, 180, 0, 90],
+            "locked": [530, 580, 0, 180, 0, 90],
+            "exit_path": [530, 580, 200, 180, 0, 90],
+        },
+        "id_in_robot": 1,
+    },
+    {
+        "id": 2,
+        "name": "robotiq_epick",
+        "holder_waypoints": {
+            "enter_path": [630, 480, 200, 180, 0, 90],
+            "disengaged": [630, 480, 50, 180, 0, 90],
+            "tool_holder": [630, 480, 0, 180, 0, 90],
+            "locked": [630, 580, 0, 180, 0, 90],
+            "exit_path": [630, 580, 200, 180, 0, 90],
+        },
+        # NOTE: デモ用。元に戻す
+        "id_in_robot": 1,
+    },
+]
+
+def get_tool_info(tool_id: int) -> Dict[str, Any]:
+    return [tool_info for tool_info in tool_infos
+            if tool_info["id"] == tool_id][0]
+
 save_control = SAVE
 if save_control:
     save_path = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_control.jsonl"
@@ -88,6 +126,7 @@ class Cobotta_Pro_CON:
     def __init__(self):
         self.default_joint = default_joints["vr"]
         self.tidy_joint = default_joints["tidy"]
+        self.tool_id = 1
 
     def init_robot(self):
         self.robot = DensoRobot(
@@ -526,6 +565,66 @@ class Cobotta_Pro_CON:
         self.pose[15] = 0
         self.pose[16] = 0
 
+    def control_loop_w_tool_change(self):
+        # リアルタイム制御中にツールチェンジする
+        while True:
+            self.control_loop_w_recover_automatic()
+            next_tool_id = self.pose[17]
+            if next_tool_id != 0:
+                self.tool_change(next_tool_id)
+                self.pose[17] = 0
+            else:
+                break
+
+    def tool_change(self, next_tool_id: int):
+        # NOTE: 検証用にコメントアウトしているが、将来的には必要
+        # if next_tool_id == self.tool_id:
+        #     print("Selected tool is current tool.")
+        #     return
+        tool_info = get_tool_info(self.tool_id)
+        next_tool_info = get_tool_info(next_tool_id)
+        # ツールチェンジで行うと予想される仮動作として実装
+        # ワークから離れるため、真上のTCP位置を記録しそこへ移動する
+        current_pose = self.robot.get_current_pose()
+        diff = [0, 0, 100, 0, 0, 0]
+        up_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
+        self.robot.move_pose(up_pose)
+        # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
+        self.robot.SetAreaEnabled(0, False)
+        # アームの先端の位置で制御する（現在のツールに依存しない）
+        self.robot.robot_change("Tool0")
+        # 現在ツールが付いていないとき
+        if tool_info["id"] == -1:
+            assert next_tool_info["id"] != -1
+            wps = next_tool_info["holder_waypoints"]
+            self.robot.move_pose(wps["enter_path"])
+            self.robot.move_pose(wps["disengaged"])
+            self.robot.move_pose(wps["tool_holder"])
+            self.robot.move_pose(wps["locked"])
+            self.robot.move_pose(wps["exit_path"])
+        else:
+            wps = tool_info["holder_waypoints"]
+            self.robot.move_pose(wps["exit_path"])
+            self.robot.move_pose(wps["locked"])
+            self.robot.move_pose(wps["tool_holder"])
+            self.robot.move_pose(wps["disengaged"])
+            if next_tool_info["id"] == -1:
+                self.robot.move_pose(wps["enter_path"])
+            else:
+                wps = next_tool_info["holder_waypoints"]
+                self.robot.move_pose(wps["disengaged"])
+                self.robot.move_pose(wps["tool_holder"])
+                self.robot.move_pose(wps["locked"])
+                self.robot.move_pose(wps["exit_path"])
+        next_tool_id_in_robot = next_tool_info.get(
+            "id_in_robot", next_tool_id)
+        # 次のツール座標系に変更
+        self.robot.robot_change(f"Tool{next_tool_id_in_robot}")
+        # 以下の移動後、ツールチェンジ前後でのTCP位置は変わらない
+        # （ツールの大きさに応じてアームの先端の位置が変わる）
+        self.robot.move_pose(up_pose)
+        self.tool_id = next_tool_id
+
     def run_proc(self, control_pipe, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
@@ -549,7 +648,9 @@ class Cobotta_Pro_CON:
                 elif command["command"] == "clear_error":
                     self.clear_error()
                 elif command["command"] == "start_rt_control":
-                    self.control_loop_w_recover_automatic()
+                    self.control_loop_w_tool_change()
+                elif command["command"] == "tool_change":
+                    self.tool_change(command["param"]["tool_id"])
             except Exception as e:
                 self.leave_servo_mode()
                 print(f"[CNT]: {self.robot.format_error(e)}")

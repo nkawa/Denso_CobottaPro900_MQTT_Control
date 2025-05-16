@@ -95,6 +95,11 @@ class Cobotta_Pro_MQTT:
                     if self.gripState:
                         self.gripState = False
                         self.pose[13] = 2
+            
+            if "tool_change" in js:
+                tool = js["tool_change"]
+                self.pose[16] = 1
+                self.pose[17] = tool
 
         elif msg.topic == MQTT_MANAGE_RCV_TOPIC:
             if MQTT_MODE == "metawork":
@@ -157,6 +162,7 @@ class ProcessManager:
         # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
         # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
         # [16]: 1: mqtt_control停止命令
+        # [17]: ツール番号
         self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -228,6 +234,9 @@ class ProcessManager:
         # mqtt_control中のみシグナルを出す
         if self.ar[15] == 1:
             self.ar[16] = 1
+
+    def tool_change(self, tool_id: int):
+        self._send_command_to_control({"command": "tool_change", "param": {"tool_id": tool_id}})
 
     def get_current_monitor_log(self):
         with self.monitor_lock:

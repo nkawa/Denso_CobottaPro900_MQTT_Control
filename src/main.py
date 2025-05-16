@@ -13,6 +13,9 @@ class MQTTWin:
         self.root = root
         self.root.title("MQTT-CobottaPro900 Controller")
         self.root.geometry("600x800")
+
+        # NOTE: デモ用
+        self.tool_id = 1
         
         for col in range(4):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
@@ -69,6 +72,12 @@ class MQTTWin:
         self.button_StopMQTTControl.grid(
             row=3,column=1,padx=2,pady=10,sticky="ew")
 
+        self.button_ToolChange = \
+            tk.Button(self.root, text="ToolChange", padx=5,
+                      command=self.ToolChange, state="disabled")
+        self.button_ToolChange.grid(
+            row=3,column=2,padx=2,pady=10,sticky="ew")
+
         self.frame_enabled = tk.Frame(self.root)
         self.frame_enabled.grid(row=1,column=3,padx=2,pady=10,sticky="w")
         self.canvas_enabled = \
@@ -120,6 +129,7 @@ class MQTTWin:
         self.button_EnableRobot.config(state="normal")
         self.button_ReleaseHand.config(state="normal")
         self.button_TidyPose.config(state="normal")
+        self.button_ToolChange.config(state="normal")
         if self.pm.state_recv_mqtt:
             self.button_StartMQTTControl.config(state="normal")
             self.button_StopMQTTControl.config(state="normal")
@@ -182,6 +192,13 @@ class MQTTWin:
         if not self.pm.state_control:
             return
         self.pm.release_hand()
+
+    def ToolChange(self):
+        if not self.pm.state_control:
+            return
+        # NOTE: 開発用
+        self.tool_id = 2 if (not getattr(self, "tool_id") or self.tool_id == 1) else 1
+        self.pm.tool_change(self.tool_id)
 
     def update_monitor(self):
         if not self.pm.state_monitor:

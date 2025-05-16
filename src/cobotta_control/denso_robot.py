@@ -368,6 +368,11 @@ class DensoRobot:
         if prev_servo_mode:
             self.enter_servo_mode()
 
+    def move_pose_by_diff(self, diff: List[float], option: str = "") -> None:
+        current_pose = self.get_current_pose()
+        target_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
+        self.move_pose(target_pose, option=option)
+
     def move_pose_until_completion(
         self,
         pose: List[float],
@@ -1682,3 +1687,22 @@ class DensoRobot:
         ret = self._bcap.robot_execute(self._hRob, "GetSrvData", 2)
         # 観測範囲では、モータがOFFのときのみ0になるため利用
         return sum(ret) != 0
+
+    def SetAreaEnabled(self, area_num: int, enable: bool) -> None:
+        """
+        エリアの有効/無効を設定します．
+        b-CAP Slave のライセンスキーを追加し，クライアントから b-CAP Slave Mode で制御中は使用できません．
+        書式 SetAreaEnabled (<AreaNum>, <有効/無効>)
+        <AreaNum> ： [in]エリア番号(VT_I4)
+        <有効/無効> ： [in]エリア番号(VT_BOOL)
+        """
+        self._bcap.robot_execute(self._hRob, "SetAreaEnabled", [area_num, enable])
+
+    def GetAreaEnabled(self, area_num: int) -> None:
+        """
+        エリアの有効/無効を取得します．
+        書式 GetAreaEnabled (<AreaNum>)
+        <AreaNum> ： [in]エリア番号(VT_I4)
+        戻り値 ： 有効/無効(VT_BOOL)
+        """
+        return self._bcap.robot_execute(self._hRob, "SetAreaEnabled", [area_num])
