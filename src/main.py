@@ -15,7 +15,8 @@ class MQTTWin:
         self.root.geometry("600x800")
 
         # NOTE: デモ用
-        self.tool_id = 1
+        from itertools import cycle
+        self.tool_ids = cycle([1, 2])
         
         for col in range(4):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
@@ -196,9 +197,7 @@ class MQTTWin:
     def ToolChange(self):
         if not self.pm.state_control:
             return
-        # NOTE: 開発用
-        self.tool_id = 2 if (not getattr(self, "tool_id") or self.tool_id == 1) else 1
-        self.pm.tool_change(self.tool_id)
+        self.pm.tool_change(next(self.tool_ids))
 
     def update_monitor(self):
         if not self.pm.state_monitor:

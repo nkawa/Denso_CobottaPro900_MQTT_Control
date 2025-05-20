@@ -236,7 +236,8 @@ class ProcessManager:
             self.ar[16] = 1
 
     def tool_change(self, tool_id: int):
-        self._send_command_to_control({"command": "tool_change", "param": {"tool_id": tool_id}})
+        self.ar[17] = tool_id
+        self._send_command_to_control({"command": "tool_change"})
 
     def get_current_monitor_log(self):
         with self.monitor_lock:

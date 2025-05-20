@@ -650,7 +650,12 @@ class Cobotta_Pro_CON:
                 elif command["command"] == "start_rt_control":
                     self.control_loop_w_tool_change()
                 elif command["command"] == "tool_change":
-                    self.tool_change(command["param"]["tool_id"])
+                    while True:
+                        next_tool_id = self.pose[17]
+                        if next_tool_id != 0:
+                            self.tool_change(next_tool_id)
+                            self.pose[17] = 0
+                            break
             except Exception as e:
                 self.leave_servo_mode()
                 print(f"[CNT]: {self.robot.format_error(e)}")
