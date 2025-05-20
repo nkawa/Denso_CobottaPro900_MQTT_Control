@@ -163,6 +163,7 @@ class ProcessManager:
         # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
         # [16]: 1: mqtt_control停止命令
         # [17]: ツール番号
+        # [18]: tool_changeでの制御プロセスと状態プロセスの同期用
         self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
