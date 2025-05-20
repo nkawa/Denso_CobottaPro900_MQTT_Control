@@ -903,6 +903,7 @@ class DensoRobot:
         # コントローラ内部で一定周期（8ms）に更新された現在位置をJ 型で取得する
         # 8関節分出るがCobotta Pro 900は6関節分のみ有効
         # 非常停止中も実行できる
+        # 所要時間は1ms程度
         cur_jnt = self._bcap.robot_execute(self._hRob, "CurJnt")
         return cur_jnt[:6]
 
@@ -977,6 +978,7 @@ class DensoRobot:
         """
         現在のツール番号を取得します.
 
+        所要時間は1ms程度
         """
         ret = self._bcap.robot_execute(
             self._hRob,
