@@ -566,7 +566,8 @@ class Cobotta_Pro_CON:
         # ツールチェンジで行うと予想される仮動作として実装
         # ワークから離れるため、真上のTCP位置を記録しそこへ移動する
         current_pose = self.robot.get_current_pose()
-        diff = [0, 0, 100, 0, 0, 0]
+        # diff = [0, 0, 100, 0, 0, 0]
+        diff = [0, 0, 0, 0, 0, 0]
         up_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
         self.robot.move_pose(up_pose)
         # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
