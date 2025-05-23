@@ -659,6 +659,8 @@ class Cobotta_Pro_CON:
                 next_tool_info["id_in_robot"], next_tool_info["tool_def"])
         self.robot.set_tool(next_tool_info["id_in_robot"])
         self.robot.move_pose(up_pose)
+        # エリア機能を有効にする
+        self.robot.SetAreaEnabled(0, True)
         self.hand_name = name
         self.hand = hand
         self.tool_id = next_tool_id
