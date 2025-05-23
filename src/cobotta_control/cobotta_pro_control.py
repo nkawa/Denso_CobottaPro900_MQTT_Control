@@ -655,8 +655,9 @@ class Cobotta_Pro_CON:
                 
         # 以下の移動後、ツールチェンジ前後でのTCP位置は変わらない
         # （ツールの大きさに応じてアームの先端の位置が変わる）
-        self.robot.SetToolDef(
-            next_tool_info["id_in_robot"], next_tool_info["tool_def"])
+        if next_tool_info["id"] != -1:
+            self.robot.SetToolDef(
+                next_tool_info["id_in_robot"], next_tool_info["tool_def"])
         self.robot.set_tool(next_tool_info["id_in_robot"])
         self.robot.move_pose(up_pose)
         self.hand_name = name
