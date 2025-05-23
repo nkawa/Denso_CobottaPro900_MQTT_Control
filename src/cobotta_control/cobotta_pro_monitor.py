@@ -45,6 +45,7 @@ class Cobotta_Pro_MON:
     def init_robot(self):
         self.robot = DensoRobot(host=ROBOT_IP)
         self.robot.start()
+        self.robot.clear_error()
         self.find_and_setup_hand()
 
     def find_and_setup_hand(self):

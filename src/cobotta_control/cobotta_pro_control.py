@@ -99,6 +99,7 @@ class Cobotta_Pro_CON:
             default_servo_mode=servo_mode,
         )
         self.robot.start()
+        self.robot.clear_error()
         self.robot.take_arm()
         self.find_and_setup_hand()
 
