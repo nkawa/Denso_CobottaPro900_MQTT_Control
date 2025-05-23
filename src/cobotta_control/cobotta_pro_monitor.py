@@ -49,26 +49,20 @@ class Cobotta_Pro_MON:
         self.find_and_setup_hand()
 
     def find_and_setup_hand(self):
+        tool_id = int(os.environ["TOOL_ID"])
         connected = False
-        for tool_info in tool_infos:
-            tool_id = tool_info["id"]
-            if tool_id == -1:
-                continue
-            name = tool_info["name"]
-            hand = tool_classes[name]()
+        tool_info = self.get_tool_info(tool_infos, tool_id)
+        name = tool_info["name"]
+        hand = tool_classes[name]()
+        if tool_id != -1:
             connected = hand.connect_and_setup()
-            if connected:
-                print(f"Connected to hand; id: {tool_id}, name: {name}")
-                self.hand_name = name
-                self.hand = hand
-                self.tool_id = tool_id
-                return
-        if not connected:
-            print("Failed to connect to any hand")
-            tool_id = -1
-            self.hand_name = "no_tool"
-            self.hand = None
-            self.tool_id = tool_id
+            if not connected:
+                raise ValueError(f"Failed to connect to hand: {name}")
+        else:
+            hand = None
+        self.hand_name = name
+        self.hand = hand
+        self.tool_id = tool_id
 
     def init_realtime(self):
         os_used = sys.platform

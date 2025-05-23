@@ -1,3 +1,4 @@
+from html import parser
 import json
 import tkinter as tk
 from tkinter import scrolledtext
@@ -229,6 +230,30 @@ class MQTTWin:
         if current_lines > max_lines:
             excess_lines = current_lines - max_lines
             self.log_area.delete("1.0", f"{excess_lines}.0")  # 超過分の行を削除
+
+if True:
+    # NOTE: 現在ロボットに付いているツールが何かを管理する方法がないので
+    # ロボット制御コードの使用者に指定してもらう
+    # ツールによっては、ツールとの通信が不要なものがあるので、通信の成否では判定できない
+    # 現在のツールの状態を常にファイルに保存しておき、ロボット制御コードを再起動するときに
+    # そのファイルを読み込むようにすれば管理はできるが、エラーで終了したときに
+    # ファイルの情報が正確かいまのところ保証できないので、指定してもらう
+    import argparse
+    parser = argparse.ArgumentParser()
+    from cobotta_control.tools import tool_infos
+    tool_ids = [tool_info["id"] for tool_info in tool_infos]
+    parser.add_argument(
+        "--tool-id",
+        type=int,
+        required=True,
+        choices=tool_ids,
+        help="現在ロボットに付いているツールのID",
+    )
+    args = parser.parse_args()
+    import os
+    # HACK: コードの変化を少なくするため、
+    # ロボット制御プロセスに引数で渡すのではなく環境変数で渡す
+    os.environ["TOOL_ID"] = str(args.tool_id)
 
 root = tk.Tk()
 mqwin = MQTTWin(root)
