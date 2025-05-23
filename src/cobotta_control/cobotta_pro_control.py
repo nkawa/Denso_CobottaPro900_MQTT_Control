@@ -48,10 +48,11 @@ filter_kind: Literal[
     "control_and_target_diff",
 ] = "original"
 speed_limits = np.array([240, 200, 240, 300, 300, 475])
-speed_limit_ratio = 0.9
-# NOTE: 加速度制限。特に明確な値は調整していない
-accel_limits = np.array([10000, 10000, 10000, 10000, 10000, 10000])
-accel_limit_ratio = 0.9
+speed_limit_ratio = 0.5
+# NOTE: 加速度制限。スマートTPの最大加速度設定は単位が[rev/s^2]だが、[deg/s^2]とみなして、
+# その値をここで設定すると、エラーが起きにくくなる (観測範囲でエラーがなくなった)
+accel_limits = np.array([4040, 4033.33, 4040, 5050, 5050, 4860])
+accel_limit_ratio = 0.5
 stopped_velocity_eps = 1e-4
 servo_mode = 0x202
 use_interp = True
