@@ -210,7 +210,7 @@ class Cobotta_Pro_CON:
                     _filter = SMAFilter(n_windows=n_windows)
                     _filter.reset(state)
 
-                self.last_control_velocity = None
+                self.last_control_velocity = np.zeros(6)
                 continue
 
             # リアルタイム制御を止める場合は入ってくる目標値を同じにして
@@ -317,14 +317,13 @@ class Cobotta_Pro_CON:
             target_diff_speed_limited = v * dt
 
             # 加速度制限
-            if self.last_control_velocity is not None:
-                a = (v - self.last_control_velocity) / dt
-                accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
-                accel_max_ratio = np.max(accel_ratio)
-                if accel_max_ratio > 1:
-                    a /= accel_max_ratio
-                v = self.last_control_velocity + a * dt
-                target_diff_speed_limited = v * dt
+            a = (v - self.last_control_velocity) / dt
+            accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
+            accel_max_ratio = np.max(accel_ratio)
+            if accel_max_ratio > 1:
+                a /= accel_max_ratio
+            v = self.last_control_velocity + a * dt
+            target_diff_speed_limited = v * dt
 
             # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
             # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
