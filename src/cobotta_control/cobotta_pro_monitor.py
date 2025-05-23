@@ -199,10 +199,10 @@ class Cobotta_Pro_MON:
                 if self.hand_name == "onrobot_2fg7":
                    width = self.hand.get_ext_width()
                    force = self.hand.get_force()
-                elif self.hand_name == "robotiq_epick":
-                   width = self.hand.get_ext_width()
-                   force = self.hand.get_force()
-            
+                elif self.hand_name == "cutter":
+                   width = None
+                   force = None
+
             # モータがONか
             enabled = self.robot.is_enabled()
             actual_joint_js["enabled"] = enabled

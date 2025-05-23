@@ -68,7 +68,7 @@ n_windows *= int(0.008 / t_intv)
 reset_default_state = True
 default_joints = {
     # TCPが台の中心の上に来る初期位置
-    "tidy": [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, 94.7038],
+    "tidy": [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, -85.2900],
     # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
     "vr": [159.3784, 10.08485, 122.90902, 151.10866, -43.20116 + 90, 20.69275],
     # NOTE: 2025/04/18 19:25の新しい位置?VRとの対応がおかしい気がする
@@ -79,8 +79,8 @@ abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
 # 外部速度。単位は%
-speed_normal = 20
-speed_tool_change = 5
+speed_normal = 10
+speed_tool_change = 2
 
 
 save_control = SAVE
@@ -433,9 +433,6 @@ class Cobotta_Pro_CON:
             # VRコントローラーからの入力で動的に把持力を
             # 変えることもできる (どういう仕組みを作るかは別)
             self.hand.grip(waiting=False)
-        # TODO: ダミー
-        elif self.hand_name == "robotiq_epick":
-            self.hand.grip(waiting=False)
 
     def send_release(self):
         if self.tool_id == -1:
@@ -444,9 +441,6 @@ class Cobotta_Pro_CON:
             # NOTE: 呼ぶ度に目標の把持力は変更できるので
             # VRコントローラーからの入力で動的に把持力を
             # 変えることもできる (どういう仕組みを作るかは別)
-            self.hand.release(waiting=False)
-        # TODO: ダミー
-        elif self.hand_name == "robotiq_epick":
             self.hand.release(waiting=False)
 
     def enable(self) -> bool:
@@ -598,60 +592,65 @@ class Cobotta_Pro_CON:
             assert next_tool_info["id"] != -1
             wps = next_tool_info["holder_waypoints"]
             self.robot.move_pose(wps["enter_path"])
-            self.robot.ext_speed(speed_tool_change)
             self.robot.move_pose(wps["disengaged"])
+            self.robot.ext_speed(speed_tool_change)
             self.robot.move_pose(wps["tool_holder"])
-            self.robot.move_pose(wps["locked"])
             time.sleep(1)
+            self.robot.move_pose(wps["locked"])
             name = next_tool_info["name"]
             hand = tool_classes[name]()
             connected = hand.connect_and_setup()
             # NOTE: 接続できなければ止めたほうが良いと考える
             if not connected:
-                raise ValueError("Failed to connect to any hand")
+                raise ValueError(f"Failed to connect to hand: {name}")
             self.pose[18] = 5
             while True:
                 if self.pose[18] == 6:
                     break
                 time.sleep(0.008)
-            self.robot.move_pose(wps["exit_path"])
             self.robot.ext_speed(speed_normal)
+            self.robot.move_pose(wps["exit_path_1"])
+            self.robot.move_pose(wps["exit_path_2"])
         # 現在ツールが付いているとき
         else:
             wps = tool_info["holder_waypoints"]
-            self.robot.move_pose(wps["exit_path"])
-            self.robot.ext_speed(speed_tool_change)
+            self.robot.move_pose(wps["exit_path_2"])
+            self.robot.move_pose(wps["exit_path_1"])
             self.robot.move_pose(wps["locked"])
+            self.robot.ext_speed(speed_tool_change)
             self.robot.move_pose(wps["tool_holder"])
-            self.robot.move_pose(wps["disengaged"])
             time.sleep(1)
+            self.robot.move_pose(wps["disengaged"])
             if next_tool_info["id"] == -1:
                 self.pose[18] = 5
                 while True:
                     if self.pose[18] == 6:
                         break
                     time.sleep(0.008)
-                self.robot.move_pose(wps["enter_path"])
                 self.robot.ext_speed(speed_normal)
+                self.robot.move_pose(wps["enter_path"])
             else:
                 wps = next_tool_info["holder_waypoints"]
+                self.robot.ext_speed(speed_normal)
                 self.robot.move_pose(wps["disengaged"])
+                self.robot.ext_speed(speed_tool_change)
                 self.robot.move_pose(wps["tool_holder"])
-                self.robot.move_pose(wps["locked"])
                 time.sleep(1)
+                self.robot.move_pose(wps["locked"])
                 name = next_tool_info["name"]
                 hand = tool_classes[name]()
                 connected = hand.connect_and_setup()
                 # NOTE: 接続できなければ止めたほうが良いと考える
                 if not connected:
-                    raise ValueError("Failed to connect to any hand")
+                    raise ValueError(f"Failed to connect to hand: {name}")
                 self.pose[18] = 5
                 while True:
                     if self.pose[18] == 6:
                         break
                     time.sleep(0.008)
-                self.robot.move_pose(wps["exit_path"])
                 self.robot.ext_speed(speed_normal)
+            self.robot.move_pose(wps["exit_path_1"])
+            self.robot.move_pose(wps["exit_path_2"])
                 
         # 以下の移動後、ツールチェンジ前後でのTCP位置は変わらない
         # （ツールの大きさに応じてアームの先端の位置が変わる）
