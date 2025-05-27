@@ -97,9 +97,10 @@ class Cobotta_Pro_MQTT:
                         self.pose[13] = 2
             
             if "tool_change" in js:
-                tool = js["tool_change"]
-                self.pose[16] = 1
-                self.pose[17] = tool
+                if self.pose[17] == 0:
+                    tool = js["tool_change"]
+                    self.pose[16] = 1
+                    self.pose[17] = tool
 
         elif msg.topic == MQTT_MANAGE_RCV_TOPIC:
             if MQTT_MODE == "metawork":

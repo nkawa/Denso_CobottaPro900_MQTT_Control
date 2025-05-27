@@ -541,8 +541,15 @@ class Cobotta_Pro_CON:
             self.control_loop_w_recover_automatic()
             next_tool_id = self.pose[17]
             if next_tool_id != 0:
-                self.tool_change(next_tool_id)
-                self.pose[17] = 0
+                try:
+                    self.pose[18] = 0
+                    self.tool_change(next_tool_id)
+                except ORiNException as e:
+                    print("[CNT]: Error during tool change")
+                    print(f"[CNT]: {self.robot.format_error(e)}")
+                finally:
+                    self.pose[18] = 0
+                    self.pose[17] = 0
             else:
                 break
 
@@ -696,9 +703,16 @@ class Cobotta_Pro_CON:
                     while True:
                         next_tool_id = self.pose[17]
                         if next_tool_id != 0:
-                            self.tool_change(next_tool_id)
-                            self.pose[17] = 0
-                            break
+                            try:
+                                self.pose[18] = 0
+                                self.tool_change(next_tool_id)
+                            except ORiNException as e:
+                                print("[CNT]: Error during tool change")
+                                print(f"[CNT]: {self.robot.format_error(e)}")
+                            finally:
+                                self.pose[18] = 0
+                                self.pose[17] = 0
+                                break
             except Exception as e:
                 self.leave_servo_mode()
                 print(f"[CNT]: {self.robot.format_error(e)}")
