@@ -239,6 +239,7 @@ class Cobotta_Pro_MON:
                 actual_joint_js["error"] = error
 
             self.pose[:len(actual_joint)] = actual_joint
+            self.pose[19] = 1
 
             if now-last > 0.3:
                 jss = json.dumps(actual_joint_js)

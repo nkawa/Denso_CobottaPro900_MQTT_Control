@@ -101,6 +101,8 @@ class Cobotta_Pro_MQTT:
                     tool = js["tool_change"]
                     self.pose[16] = 1
                     self.pose[17] = tool
+            
+            self.pose[20] = 1
 
         elif msg.topic == MQTT_MANAGE_RCV_TOPIC:
             if MQTT_MODE == "metawork":
@@ -165,6 +167,8 @@ class ProcessManager:
         # [16]: 1: mqtt_control停止命令
         # [17]: ツール番号
         # [18]: tool_changeでの制御プロセスと状態プロセスの同期用
+        # [19]: 制御開始後の状態値の受信フラグ
+        # [20]: 制御開始後の目標値の受信フラグ
         self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()

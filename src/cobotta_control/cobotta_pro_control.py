@@ -142,6 +142,8 @@ class Cobotta_Pro_CON:
     def control_loop(self):
         self.last = 0
         print("[CNT]Start Main Loop")
+        self.pose[19] = 0
+        self.pose[20] = 0
         while True:
             # NOTE: テスト用データなど、時間が経つにつれて
             # targetの値がstateの値によらずにどんどん
@@ -153,7 +155,7 @@ class Cobotta_Pro_CON:
             # targetはstateに依存するのでまた別に考える
 
             # 現在情報を取得しているかを確認
-            if self.pose[0:6].sum() == 0:
+            if self.pose[19] != 1:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
@@ -162,7 +164,7 @@ class Cobotta_Pro_CON:
                 continue
 
             # 目標値を取得しているかを確認
-            if self.pose[6:12].sum() == 0:
+            if self.pose[20] != 1:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for target..")
                 # 取得する前に終了する場合即時終了可能
