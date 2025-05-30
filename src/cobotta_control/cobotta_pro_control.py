@@ -435,6 +435,8 @@ class Cobotta_Pro_CON:
             # VRコントローラーからの入力で動的に把持力を
             # 変えることもできる (どういう仕組みを作るかは別)
             self.hand.grip(waiting=False)
+        elif self.hand_name == "onrobot_vgc10":
+            self.hand.grip(waiting=False)
 
     def send_release(self):
         if self.tool_id == -1:
@@ -443,6 +445,8 @@ class Cobotta_Pro_CON:
             # NOTE: 呼ぶ度に目標の把持力は変更できるので
             # VRコントローラーからの入力で動的に把持力を
             # 変えることもできる (どういう仕組みを作るかは別)
+            self.hand.release(waiting=False)
+        elif self.hand_name == "onrobot_vgc10":
             self.hand.release(waiting=False)
 
     def enable(self) -> bool:
