@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-Reference: https://github.com/cwsfa/onrobot-api/scripts/twofg.py
+Modified from https://github.com/cwsfa/onrobot-api/blob/master/scripts/twofg.py at commit id: da1eb38
 
 XML-RPC library for controlling OnRobot devcies from Doosan robots
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-Reference: https://github.com/cwsfa/onrobot-api/scripts/device.py
+Modified from https://github.com/cwsfa/onrobot-api/blob/master/scripts/device.py at commit id: da1eb38
 '''
 
 import xmlrpc.client
