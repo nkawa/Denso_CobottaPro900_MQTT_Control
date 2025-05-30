@@ -181,7 +181,8 @@ class Cobotta_Pro_MON:
                 # 7要素送る必要があるのでダミーの[0]を追加
                 actual_joint_js = {"joints": list(actual_joint) + [0]}
                 # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-                actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
+                # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
+                # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
             else:
                 raise ValueError
             

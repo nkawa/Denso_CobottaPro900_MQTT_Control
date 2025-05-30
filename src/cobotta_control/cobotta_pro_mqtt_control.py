@@ -80,7 +80,8 @@ class Cobotta_Pro_MQTT:
                 rot = js["joints"][:6]
                 joint_q = [x for x in rot]
                 # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-                joint_q[4] = joint_q[4] + 90
+                # NOTE(20250530): 現状はこれでうまくいくがVR側との意思疎通が必要
+                # joint_q[4] = joint_q[4] + 90
             else:
                 raise ValueError
             self.pose[6:12] = joint_q 
