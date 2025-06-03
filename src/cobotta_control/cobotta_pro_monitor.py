@@ -1,6 +1,6 @@
 # Cobotta Pro の状態をモニタリングする
 
-from typing import Literal
+from typing import Any, Dict, List
 from paho.mqtt import client as mqtt
 from denso_robot import DensoRobot
 
@@ -18,6 +18,8 @@ import numpy as np
 
 from dotenv import load_dotenv
 
+from cobotta_control.tools import tool_infos, tool_classes
+
 # パラメータ
 load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
 ROBOT_IP = os.getenv("ROBOT_IP", "192.168.5.45")
@@ -31,8 +33,6 @@ SAVE = os.getenv("SAVE", "true") == "true"
 
 # 基本的に運用時には固定するパラメータ
 t_intv = 0.008
-use_hand = True
-hand_mode: Literal["b-CAP", "xmlrpc"] = "xmlrpc"
 save_state = SAVE
 if save_state:
     save_path = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_status.jsonl"
@@ -43,16 +43,26 @@ class Cobotta_Pro_MON:
         pass
 
     def init_robot(self):
-        self.robot = DensoRobot(
-            host=ROBOT_IP,
-            use_hand=use_hand,
-            hand_mode=hand_mode,
-            hand_host=HAND_IP,
-        )
+        self.robot = DensoRobot(host=ROBOT_IP)
         self.robot.start()
-        assert self.robot.wait_until_set_tool(timeout=60)
-        if self.robot._use_hand:
-            assert self.robot.setup_hand()
+        self.robot.clear_error()
+        self.find_and_setup_hand()
+
+    def find_and_setup_hand(self):
+        tool_id = int(os.environ["TOOL_ID"])
+        connected = False
+        tool_info = self.get_tool_info(tool_infos, tool_id)
+        name = tool_info["name"]
+        hand = tool_classes[name]()
+        if tool_id != -1:
+            connected = hand.connect_and_setup()
+            if not connected:
+                raise ValueError(f"Failed to connect to hand: {name}")
+        else:
+            hand = None
+        self.hand_name = name
+        self.hand = hand
+        self.tool_id = tool_id
 
     def init_realtime(self):
         os_used = sys.platform
@@ -83,6 +93,67 @@ class Cobotta_Pro_MON:
         self.client.connect(MQTT_SERVER, 1883, 60)
         self.client.loop_start()   # 通信処理開始
 
+    def get_tool_info(
+        self, tool_infos: List[Dict[str, Any]], tool_id: int) -> Dict[str, Any]:
+        return [tool_info for tool_info in tool_infos
+                if tool_info["id"] == tool_id][0]
+
+    def tool_change(self, next_tool_id: int) -> None:
+        while True:
+            if self.pose[18] == 1:
+                break
+            time.sleep(0.008)  
+        self.pose[18] = 2
+        while True:
+            if self.pose[18] == 0:
+                return
+            elif self.pose[18] == 3:
+                break
+            time.sleep(0.008)
+        tool_info = self.get_tool_info(tool_infos, self.tool_id)
+        next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
+        # 現在のツールとの接続を切る
+        # 現在ツールが付いていないとき
+        if tool_info["id"] == -1:
+            assert next_tool_info["id"] != -1
+        # 現在ツールが付いているとき
+        else:
+            self.hand.disconnect()
+        self.pose[18] = 4
+        while True:
+            if self.pose[18] == 5:
+                break
+            time.sleep(0.008)          
+        # 現在ツールが付いていないとき
+        if tool_info["id"] == -1:
+            assert next_tool_info["id"] != -1
+            name = next_tool_info["name"]
+            hand = tool_classes[name]()
+            connected = hand.connect_and_setup()
+            # NOTE: 接続できなければ止めたほうが良いと考える
+            if not connected:
+                raise ValueError("Failed to connect to any hand")
+            self.pose[18] = 6
+        # 現在ツールが付いているとき
+        else:
+            if next_tool_info["id"] == -1:
+                self.pose[18] = 6
+            else:
+                name = next_tool_info["name"]
+                hand = tool_classes[name]()
+                connected = hand.connect_and_setup()
+                # NOTE: 接続できなければ止めたほうが良いと考える
+                if not connected:
+                    raise ValueError("Failed to connect to any hand")
+                self.pose[18] = 6
+        self.hand_name = name
+        self.hand = hand
+        self.tool_id = next_tool_id
+        while True:
+            if self.pose[18] == 0:
+                return
+            time.sleep(0.008)
+
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
@@ -92,6 +163,11 @@ class Cobotta_Pro_MON:
                 last = now
             if last_error_monitored == 0:
                 last_error_monitored = now
+
+            # ツールチェンジ
+            next_tool_id = self.pose[17]
+            if next_tool_id != 0:
+                self.tool_change(next_tool_id)
 
             # TCP姿勢
             actual_tcp_pose = self.robot.get_current_pose()
@@ -105,7 +181,8 @@ class Cobotta_Pro_MON:
                 # 7要素送る必要があるのでダミーの[0]を追加
                 actual_joint_js = {"joints": list(actual_joint) + [0]}
                 # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-                actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
+                # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
+                # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
             else:
                 raise ValueError
             
@@ -116,17 +193,20 @@ class Cobotta_Pro_MON:
             forces = self.robot.ForceValue()
             actual_joint_js["forces"] = forces
 
-            if use_hand:
-                if hand_mode == "b-CAP":
-                    width = self.robot.TwofgGetWidth()
-                    force = self.robot.TwofgGetForce()
-                else:
-                    width = self.robot.TwofgGetWidthXmlRpc()
-                    force = self.robot.TwofgGetForceXmlRpc()
-            else:
+            if self.tool_id == -1:
                 width = None
                 force = None
-            
+            else:
+                if self.hand_name == "onrobot_2fg7":
+                   width = self.hand.get_ext_width()
+                   force = self.hand.get_force()
+                elif self.hand_name == "onrobot_vgc10":
+                    width = None
+                    force = None
+                elif self.hand_name == "cutter":
+                   width = None
+                   force = None
+
             # モータがONか
             enabled = self.robot.is_enabled()
             actual_joint_js["enabled"] = enabled
@@ -137,39 +217,33 @@ class Cobotta_Pro_MON:
             # 本プロセスでロボットがスレーブモードでないと判断した直後に、
             # 別プロセスでスレーブモードに入る可能性があるので、
             # 通常モードの場合のみ呼び出す
-            # TODO: self.pose[14]を評価後からget_cur_error_info_allを呼ぶ前に
-            # スレーブモードに入る可能性もある
-            # この可能性を許容してエラー対応をするか厳密な状態管理をするか
-            # エラー対応をすると制御プロセスで繰り返しスレーブモードON→
-            # 状態取得プロセスでスレーブモードOFFの輪廻になる可能性あり
-            # 通常モードの時は制御プロセスをロックしても良いので厳密な状態管理をする
-            if self.pose[14] == 0:
-                actual_joint_js["servo_mode"] = False
-                errors = self.robot.get_cur_error_info_all()
-                # 制御プロセスのエラー検出と方法が違うので、
-                # 直後は状態プロセスでエラーが検出されないことがある
-                # その場合は次のループに検出を持ち越す
-                if len(errors) > 0:
-                    error = {"errors": errors}
-                    # 自動復帰可能エラー
-                    if self.robot.are_all_errors_stateless(errors):
-                        error["auto_recoverable"] = True
-                    # 復帰にユーザーの対応を求めるエラー
-                    else:
-                        error["auto_recoverable"] = False
-            else:
-                actual_joint_js["servo_mode"] = True
+            with self.slave_mode_lock:
+                if self.pose[14] == 0:
+                    actual_joint_js["servo_mode"] = False
+                    errors = self.robot.get_cur_error_info_all()  
+                    # 制御プロセスのエラー検出と方法が違うので、
+                    # 直後は状態プロセスでエラーが検出されないことがある
+                    # その場合は次のループに検出を持ち越す
+                    if len(errors) > 0:
+                        error = {"errors": errors}
+                        # 自動復帰可能エラー
+                        if self.robot.are_all_errors_stateless(errors):
+                            error["auto_recoverable"] = True
+                        # 復帰にユーザーの対応を求めるエラー
+                        else:
+                            error["auto_recoverable"] = False
+                else:
+                    actual_joint_js["servo_mode"] = True
             if self.pose[15] == 0:
                 actual_joint_js["mqtt_control"] = "OFF"
-            elif self.pose[15] == 1:
+            else:
                 actual_joint_js["mqtt_control"] = "ON"
-            elif self.pose[15] == 2:
-                actual_joint_js["mqtt_control"] = "Stopping"
 
             if error:
                 actual_joint_js["error"] = error
 
             self.pose[:len(actual_joint)] = actual_joint
+            self.pose[19] = 1
 
             if now-last > 0.3:
                 jss = json.dumps(actual_joint_js)
@@ -199,11 +273,12 @@ class Cobotta_Pro_MON:
             if t_wait > 0:
                 time.sleep(t_wait)
 
-    def run_proc(self, monitor_dict, monitor_lock):
+    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
         self.monitor_lock = monitor_lock
+        self.slave_mode_lock = slave_mode_lock
 
         self.init_realtime()
         self.init_robot()

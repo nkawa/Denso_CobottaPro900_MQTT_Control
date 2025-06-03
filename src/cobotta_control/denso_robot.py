@@ -14,8 +14,6 @@ sys.path.append(package_dir)
 
 from bcap_python.bcapclient import BCAPClient
 from bcap_python.orinexception import ORiNException
-from on_robot.device import Device
-from on_robot.twofg import TWOFG
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +104,8 @@ class DensoRobot:
         port: int = 5007,
         timeout: float = 5,
         use_hand: bool = False,
-        hand_mode: Literal["b-CAP", "xmlrpc"] = "b-CAP",
         hand_host: str = "192.168.5.46",
+        hand_tool_id: int = 1,
         hand_parameters: Dict[str, Any] = {
             "TwofgFingerLength": 8.5,
             "TwofgFTWidth": 5,
@@ -135,14 +133,11 @@ class DensoRobot:
         # e.g. "Interval=8"
         # 変えても変化は見られなかった
         self.controller_connect_option = ""
+        # Robotモジュール内でハンドを使用する場合
         # ツール座標系番号
         self._use_hand = use_hand
-        if self._use_hand:
-            self._tool = 1
-        else:
-            self._tool = 0
-        self._hand_mode = hand_mode
         self._hand_host = hand_host
+        self._hand_tool_id = hand_tool_id
         self._hand_parameters = hand_parameters
         self._default_grip_width = None
         self._default_release_width = None
@@ -160,26 +155,27 @@ class DensoRobot:
         self._interval = 0.008
         self._default_pose = [560, 150, 460, 180, 0, 90]
 
-        # self._bcap_hand = BCAPClient(self.host, self.port, self.timeout)
-
-        # ツール座標系の原点の位置をTCP位置という
-        # GetToolDefは現在のツール座標系のメカニカルインターフェース座標系からの
-        # オフセット
-        # オフセットはベース座標系での値ではなくメカニカルインターフェース座標系での
-        # 値であることに注意
-        # 例えばアーム先端 (フランジ) にハンドとしてOnRobotの2FG7を付けると、
-        # TCP位置はアーム先端ではなくハンド先端が望ましいのでツール座標系を使う
-        # この例でのツール座標系のTCP位置は
-        # [0.0, 0.0, 160.0, 0.0, 0.0, 0.0]
-        self._tool_def = self.GetToolDef(self._tool)
-
-    def set_tool(self) -> None:
-        # ロボットの軸の制御権
-        # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
+    def take_arm(self) -> None:
+        """
+        制御権の取得要求を行います．
+        スレーブモードでは使用できない。
+        複数プロセスで同時に制御権を取得することはできない。
+        """
+        # 引数1: 付加軸を含まないロボットのみのアームグループ番号
+        # 引数2: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
         self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
-        cur_tool = self.CurTool()
-        if cur_tool != self._tool:
-            self.robot_change(f"Tool{self._tool}")
+
+    def give_arm(self) -> None:
+        """
+        制御権の解放要求を行います.
+        """
+        self._bcap.robot_execute(self._hRob, "Givearm")
+
+    def set_tool(self, tool_id: int) -> None:
+        """
+        ロボットのツール座標系を変更します.
+        """
+        self.robot_change(f"Tool{tool_id}")
 
     def wait_until_set_tool(self, timeout: float = 60) -> bool:
         t_start = time.time()
@@ -191,50 +187,6 @@ class DensoRobot:
                 return False
             time.sleep(1)
 
-    def enable_monitor_only(self):
-        """
-        状態取得用のロボットのセットアップ。
-        ツール座標系の変更時にエラーが出ることがあるので使用非推奨。
-        関数内部でツール座標系を変更するのではなく外から明示的に変更するか
-        しないか決めるのが望ましい。
-        """
-        logger.info("enable_monitor_only")
-        # STO状態（セーフティ状態）を解除する
-        self.manual_reset()
-        # ティーチングペンダントのエラーをクリアする
-        self.clear_error()
-        # NOTE: ツール座標系を変更するには制御権を取得する必要がある
-        # 制御プロセスですでに制御権を取得している状態で、
-        # 状態取得プロセスで制御権を取得すると、制御プロセスで制御できなく
-        # なる可能性がある
-        # 状態取得時にもツール座標系を変更する必要がある
-        # さもなくば途中でツール座標系が変更されると取得しているTCP位置が
-        # 急に変わってしまう
-        # タイミングの問題で制御権の取得が競合すると失敗する
-        # プログラムで1度ツール座標系を変更すれば、次にプログラムを再起動する
-        # 場合にツール座標系は変わらない
-        # したがってツール座標系を変更する必要がない場合は制御権を取得しないように
-        # している
-
-        # アームのコントローラを再起動した後の1回目に失敗することがあるので
-        # ここで変更するのはよくない
-        cur_tool = self.CurTool()
-        if cur_tool != self._tool:
-            # ロボットの軸の制御権
-            # 引数1: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
-            self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
-            self.robot_change(f"Tool{self._tool}")
-            self._bcap.robot_execute(self._hRob, "Givearm")
-
-        if self._hand_mode == "xmlrpc":
-            device = Device(Global_cbip=self._hand_host)
-            self._twofg = TWOFG(device)
-            ret = self._twofg.isConnected()
-            if not ret:
-                logger.error("Hand is not connected")
-                return False
-            self._default_grip_width = self._twofg.get_min_ext_width()
-            self._default_release_width = self._twofg.get_max_ext_width()
 
     def manual_reset(self) -> None:
         # STO状態（セーフティ状態）を解除する
@@ -294,45 +246,6 @@ class DensoRobot:
         self._bcap.robot_execute(self._hRob, "Motor", 1)
         return True
 
-    def setup_hand(self) -> bool:
-        if self._hand_mode == "b-CAP":
-            ret = self.TwofgIsConn()
-            if ret == 0:
-                logger.error("Hand is not connected")
-                return False
-            ret = self.TwofgGetErrorCode()
-            if ret != 0:
-                logger.error(f"Hand has error code: {ret}")
-                return False
-            # 設定値はデータシートのデフォルトの値と一致
-            self.TwofgSetFingerLength(self._hand_parameters["TwofgFingerLength"])
-            self.TwofgSetFTWidth(self._hand_parameters["TwofgFTWidth"])
-            self.TwofgSetOrientation(self._hand_parameters["TwofgOrientation"])
-            mode = self._hand_parameters["TwofgGripMode"]
-            if mode == 1:
-                self.TwofgSwitchToExternal()
-                self._default_grip_width = self.TwofgGetMinWidth()
-                self._default_release_width = self.TwofgGetMaxWidth()
-            elif mode == 2:
-                self.TwofgSwitchToInternal()
-                self._default_grip_width = self.TwofgGetMaxWidth()
-                self._default_release_width = self.TwofgGetMinWidth()
-            else:
-                raise ValueError("TwofgGripMode must be 1 or 2")
-            return True
-        elif self._hand_mode == "xmlrpc":
-            device = Device(Global_cbip=self._hand_host)
-            self._twofg = TWOFG(device)
-            ret = self._twofg.isConnected()
-            if not ret:
-                logger.error("Hand is not connected")
-                return False
-            self._default_grip_width = self._twofg.get_min_ext_width()
-            self._default_release_width = self._twofg.get_max_ext_width()
-            return True
-        else:
-            raise ValueError
-
     def set_default_pose(self, pose):
         self._default_pose = pose
 
@@ -367,6 +280,11 @@ class DensoRobot:
         self._bcap.robot_move(self._hRob, 1, f"@E P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
         if prev_servo_mode:
             self.enter_servo_mode()
+
+    def move_pose_by_diff(self, diff: List[float], option: str = "") -> None:
+        current_pose = self.get_current_pose()
+        target_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
+        self.move_pose(target_pose, option=option)
 
     def move_pose_until_completion(
         self,
@@ -898,6 +816,7 @@ class DensoRobot:
         # コントローラ内部で一定周期（8ms）に更新された現在位置をJ 型で取得する
         # 8関節分出るがCobotta Pro 900は6関節分のみ有効
         # 非常停止中も実行できる
+        # 所要時間は1ms程度
         cur_jnt = self._bcap.robot_execute(self._hRob, "CurJnt")
         return cur_jnt[:6]
 
@@ -972,6 +891,7 @@ class DensoRobot:
         """
         現在のツール番号を取得します.
 
+        所要時間は1ms程度
         """
         ret = self._bcap.robot_execute(
             self._hRob,
@@ -984,6 +904,12 @@ class DensoRobot:
         ツール番号で指定したツール定義を取得します.
 
         PacScriptのToolPosに対応。
+
+        ツール座標系のメカニカルインターフェース座標系からのオフセットを
+        [x, y, z, rx, ry, rz]の順で返す。
+        ツール座標系の原点の位置をTCP位置という。
+        例えばアーム先端 (フランジ) にハンドとしてOnRobotの2FG7を付けると、
+        TCP位置はアーム先端ではなくハンド先端が望ましいのでツール座標系を使う。
         """
         ret = self._bcap.robot_execute(
             self._hRob,
@@ -991,6 +917,25 @@ class DensoRobot:
             tool_no,
         )
         return ret
+    
+    def SetToolDef(self, tool_no: int, tool_pos: List[float]) -> None:
+        """
+        ツール番号で指定したツール定義を設定します.
+
+        PacScriptのToolに対応。
+
+        制御権が必要。
+
+        このコマンドで設定した値は、コントローラの電源OFFまで有効ですが、
+        電源OFF後は保持されません。
+        """
+        x, y, z, rx, ry, rz = tool_pos
+        tool_def = f"P({x}, {y}, {z}, {rx}, {ry}, {rz})"
+        self._bcap.robot_execute(
+            self._hRob,
+            "SetToolDef",
+            [tool_no, tool_def],
+        )
 
     def robot_change(self, name: str) -> None:
         """
@@ -1002,7 +947,10 @@ class DensoRobot:
             name = "Tool1"
             name = "Work1"
 
-        NOTE: 観測範囲ではDensoRobotを起動、start、enableするとTool0に戻る
+        このコマンドで変更した座標系番号は、コントローラの電源OFF時まで保持されます。
+        電源ON時には元の座標系番号に戻ります。
+
+        このコマンドを実行するには、タスクがロボット軸の制御権を取得しなければなりません。
         """
         ret = self._bcap.robot_change(
             self._hRob,
@@ -1540,101 +1488,6 @@ class DensoRobot:
                 return False
             time.sleep(wdt)
 
-    def TwofgGripXmlRpc(
-        self,
-        width: Optional[float] = None,
-        force: int = 20,
-        speed: int = 10,
-        waiting: int = 1,
-    ) -> None:
-        """
-        指定した設定で把持動作を実行します．
-
-        TwofgGrip(<fWidth>, <lForce>, <lSpeed>, <lWaiting>)
-        <fWidth> ： 目標となフィンガー間の幅[mm]（VT_R4）
-        <lForce> ： ワークを把持する力[N]（VT_I4）
-        <lSpeed> ： フィンガーの開閉速度[%]（VT_I4）
-        <lWaiting> ： 待機設定（VT_I4）
-                        0：待機しない
-                        1：目標ワーク幅に達するまで待機する
-
-        OR_2FG_GRIP(instance, width, force, speed, waiting)
-        width シングル 現在のモードで適切な幅を [mm]単位、小数点精度 1 で定
-        義します。
-        force 整数 適切な把持力を [N]単位で定義します。有効な範囲は 20
-        ～140N です。
-        speed 整数 適切な把持速度を [%]単位で定義します。有効な範囲は
-        10～100%です。
-        waiting 整数
-        0：プログラムはグリッパーが動作中も続行されます。
-        1：プログラムはグリッパーが動作を終了するまで待って
-        から把持のステータスをチェックします。把持が発生し
-        ていなかった場合、プログラムは停止します。
-        """
-        if width is None:
-            if self._default_grip_width is not None:
-                width = self._default_grip_width
-            else:
-                width = self._twofg.get_min_ext_width()
-        self._twofg.grip(
-            t_width=width, n_force=force, p_speed=speed, f_wait=waiting,
-        )
-        
-    def TwofgReleaseXmlRpc(
-        self,
-        width: Optional[float] = None,
-        waiting: int = 1,
-    ) -> None:
-        """
-        指定したワーク幅まで開放動作を実行します．
-
-        TwofgRelease(<fWidth>, <lWaiting>)
-        <fWidth> ： 目標となるフィンガー間の距離[mm]（VT_R4）
-        <lWaiting> ： 待機設定（VT_I4）
-                        0：待機しない
-                        1：目標ワーク幅に達するまで待機する
-
-        OR_2FG_RELEASE(instance, width, waiting)
-        width シングル 現在のセットアップで適切な幅を [mm]単位、小数点精度
-        1 で定義します。
-        waiting 整数
-        0：プログラムはグリッパーが動作中も続行されます。
-        1：プログラムはグリッパーが動作を停止するまで待ちま
-        す。
-
-        widthがNoneの場合、把持モードに応じて最大まで開放する。
-        """
-        if width is None:
-            if self._default_release_width is not None:
-                width = self._default_release_width
-            else:
-                width = self._twofg.get_max_ext_width()
-        self._twofg.move(
-            t_width=width, f_wait=waiting,
-        )
-
-    def TwofgGetWidthXmlRpc(self) -> int:
-        """
-        フィンガー間の幅を取得します．
-        """
-        ret = self._twofg.get_ext_width()
-        return ret
-    
-    def TwofgGetForceXmlRpc(self) -> float:
-        """
-        把持力を取得します．
-        """
-        ret = self._twofg.get_force()
-        return ret
-
-    def TwofgStopXmlRpc(
-        self,
-    ) -> None:
-        """
-        動作を停止させます．
-        """
-        self._twofg.stop()
-
     def is_error_level_0(self, e: ORiNException) -> bool:
         """
         エラーレベルが0かどうか返す。
@@ -1682,3 +1535,22 @@ class DensoRobot:
         ret = self._bcap.robot_execute(self._hRob, "GetSrvData", 2)
         # 観測範囲では、モータがOFFのときのみ0になるため利用
         return sum(ret) != 0
+
+    def SetAreaEnabled(self, area_num: int, enable: bool) -> None:
+        """
+        エリアの有効/無効を設定します．
+        b-CAP Slave のライセンスキーを追加し，クライアントから b-CAP Slave Mode で制御中は使用できません．
+        書式 SetAreaEnabled (<AreaNum>, <有効/無効>)
+        <AreaNum> ： [in]エリア番号(VT_I4)
+        <有効/無効> ： [in]エリア番号(VT_BOOL)
+        """
+        self._bcap.robot_execute(self._hRob, "SetAreaEnabled", [area_num, enable])
+
+    def GetAreaEnabled(self, area_num: int) -> None:
+        """
+        エリアの有効/無効を取得します．
+        書式 GetAreaEnabled (<AreaNum>)
+        <AreaNum> ： [in]エリア番号(VT_I4)
+        戻り値 ： 有効/無効(VT_BOOL)
+        """
+        return self._bcap.robot_execute(self._hRob, "SetAreaEnabled", [area_num])

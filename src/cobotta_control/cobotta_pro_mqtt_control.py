@@ -80,7 +80,8 @@ class Cobotta_Pro_MQTT:
                 rot = js["joints"][:6]
                 joint_q = [x for x in rot]
                 # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-                joint_q[4] = joint_q[4] + 90
+                # NOTE(20250530): 現状はこれでうまくいくがVR側との意思疎通が必要
+                # joint_q[4] = joint_q[4] + 90
             else:
                 raise ValueError
             self.pose[6:12] = joint_q 
@@ -95,6 +96,14 @@ class Cobotta_Pro_MQTT:
                     if self.gripState:
                         self.gripState = False
                         self.pose[13] = 2
+            
+            if "tool_change" in js:
+                if self.pose[17] == 0:
+                    tool = js["tool_change"]
+                    self.pose[16] = 1
+                    self.pose[17] = tool
+            
+            self.pose[20] = 1
 
         elif msg.topic == MQTT_MANAGE_RCV_TOPIC:
             if MQTT_MODE == "metawork":
@@ -122,7 +131,7 @@ class Cobotta_Pro_MQTT:
 
     def run_proc(self):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
 
         self.connect_mqtt()
 
@@ -130,7 +139,7 @@ class Cobotta_Pro_MQTT:
 class Cobotta_Pro_Debug:
     def run_proc(self, monitor_dict):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         while True:
             diff = self.ar[6:12]-self.ar[0:6]
             diff *=1000
@@ -145,7 +154,7 @@ class Cobotta_Pro_Debug:
 class ProcessManager:
     def __init__(self):
         # mp.set_start_method('spawn')
-        sz = 32* np.dtype('float').itemsize
+        sz = 32 * np.dtype('float32').itemsize
         try:
             self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name='cobotta_pro')
         except FileExistsError:
@@ -155,14 +164,18 @@ class ProcessManager:
         # [6:12]: 関節の目標値
         # [13]: ハンドの目標値
         # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
-        # [15]: 0: mqtt_control実行中でない
-        #       1: mqtt_control実行中
-        #       2: mqtt_control実行中だが停止命令中
-        self.ar = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
+        # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
+        # [16]: 1: mqtt_control停止命令
+        # [17]: ツール番号
+        # [18]: tool_changeでの制御プロセスと状態プロセスの同期用
+        # [19]: 制御開始後の状態値の受信フラグ
+        # [20]: 制御開始後の目標値の受信フラグ
+        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
         self.monitor_dict = self.manager.dict()
         self.monitor_lock = self.manager.Lock()
+        self.slave_mode_lock = multiprocessing.Lock()
         self.main_pipe, self.control_pipe = multiprocessing.Pipe()
         self.state_recv_mqtt = False
         self.state_monitor = False
@@ -178,7 +191,7 @@ class ProcessManager:
         self.mon = Cobotta_Pro_MON()
         self.monP = Process(
             target=self.mon.run_proc,
-            args=(self.monitor_dict, self.monitor_lock),
+            args=(self.monitor_dict, self.monitor_lock, self.slave_mode_lock),
             name="Cobotta-Pro-monitor")
         self.monP.start()
         self.state_monitor = True
@@ -187,7 +200,7 @@ class ProcessManager:
         self.ctrl = Cobotta_Pro_CON()
         self.ctrlP = Process(
             target=self.ctrl.run_proc,
-            args=(self.control_pipe,),
+            args=(self.control_pipe, self.slave_mode_lock),
             name="Cobotta-Pro-control")
         self.ctrlP.start()
         self.state_control = True
@@ -227,7 +240,11 @@ class ProcessManager:
     def stop_mqtt_control(self):
         # mqtt_control中のみシグナルを出す
         if self.ar[15] == 1:
-            self.ar[15] = 2
+            self.ar[16] = 1
+
+    def tool_change(self, tool_id: int):
+        self.ar[17] = tool_id
+        self._send_command_to_control({"command": "tool_change"})
 
     def get_current_monitor_log(self):
         with self.monitor_lock:

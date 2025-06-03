@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-Reference: https://github.com/cwsfa/onrobot-api/scripts/twofg.py
+Modified from https://github.com/cwsfa/onrobot-api/blob/master/scripts/twofg.py at commit id: da1eb38
 
 XML-RPC library for controlling OnRobot devcies from Doosan robots
 
@@ -248,7 +248,7 @@ class TWOFG():
                     print("2FG external grip command timeout")
                     break
             else:
-                RET_OK
+                return RET_OK
             return RET_FAIL
         else:
             return RET_OK

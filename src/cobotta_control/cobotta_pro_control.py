@@ -1,6 +1,6 @@
 # Cobotta Proを制御する
 
-from typing import Literal
+from typing import Any, Dict, List, Literal
 import datetime
 import time
 
@@ -23,6 +23,8 @@ from denso_robot import E_ACCEL_AUTO_RECOVERABLE_SET, E_AUTO_RECOVERABLE_SET, E_
 
 from filter import SMAFilter
 from interpolate import DelayedInterpolator
+from cobotta_control.tools import tool_infos, tool_classes
+
 
 # パラメータ
 load_dotenv(os.path.join(os.path.dirname(__file__),'.env'))
@@ -46,10 +48,11 @@ filter_kind: Literal[
     "control_and_target_diff",
 ] = "original"
 speed_limits = np.array([240, 200, 240, 300, 300, 475])
-speed_limit_ratio = 0.9
-# NOTE: 加速度制限。特に明確な値は調整していない
-accel_limits = np.array([10000, 10000, 10000, 10000, 10000, 10000])
-accel_limit_ratio = 0.9
+speed_limit_ratio = 0.5
+# NOTE: 加速度制限。スマートTPの最大加速度設定は単位が[rev/s^2]だが、[deg/s^2]とみなして、
+# その値をここで設定すると、エラーが起きにくくなる (観測範囲でエラーがなくなった)
+accel_limits = np.array([4040, 4033.33, 4040, 5050, 5050, 4860])
+accel_limit_ratio = 0.5
 stopped_velocity_eps = 1e-4
 servo_mode = 0x202
 use_interp = True
@@ -63,21 +66,25 @@ if servo_mode == 0x102:
 else:
     t_intv = 0.008
 n_windows *= int(0.008 / t_intv)
-use_hand = True
-hand_mode: Literal["b-CAP", "xmlrpc"] = "xmlrpc"
 reset_default_state = True
 default_joints = {
     # TCPが台の中心の上に来る初期位置
-    "tidy": [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, 94.7038],
+    "tidy": [4.7031, -0.6618, 105.5149, 0.0001, 75.1440, -85.2900],
     # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
     "vr": [159.3784, 10.08485, 122.90902, 151.10866, -43.20116 + 90, 20.69275],
     # NOTE: 2025/04/18 19:25の新しい位置?VRとの対応がおかしい気がする
     # 毎回の値も[0, 0, 0, 0, 0, 0]が飛んでくる気がする
     "vr2": [115.55677, 5.86272, 135.70465, 110.53529, -15.55474 + 90, 35.59977],
+    # NOTE: 2025/05/30での新しい位置
+    "vr3": [113.748, 5.645, 136.098, 109.059, 75.561, 35.82]
 }
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
+# 外部速度。単位は%
+speed_normal = 10
+speed_tool_change = 2
+
 
 save_control = SAVE
 if save_control:
@@ -86,21 +93,38 @@ if save_control:
 
 class Cobotta_Pro_CON:
     def __init__(self):
-        self.default_joint = default_joints["vr"]
+        self.default_joint = default_joints["vr3"]
         self.tidy_joint = default_joints["tidy"]
 
     def init_robot(self):
         self.robot = DensoRobot(
             host=ROBOT_IP,
             default_servo_mode=servo_mode,
-            use_hand=use_hand,
-            hand_mode=hand_mode,
-            hand_host=HAND_IP,
         )
         self.robot.start()
-        self.robot.set_tool()
-        if self.robot._use_hand:
-            assert self.robot.setup_hand()
+        self.robot.clear_error()
+        self.robot.take_arm()
+        self.find_and_setup_hand()
+
+    def find_and_setup_hand(self):
+        tool_id = int(os.environ["TOOL_ID"])
+        connected = False
+        tool_info = self.get_tool_info(tool_infos, tool_id)
+        name = tool_info["name"]
+        hand = tool_classes[name]()
+        if tool_id != -1:
+            connected = hand.connect_and_setup()
+            if not connected:
+                raise ValueError(f"Failed to connect to hand: {name}")
+        else:
+            hand = None
+        self.hand_name = name
+        self.hand = hand
+        self.tool_id = tool_id
+        if tool_id != -1:
+            self.robot.SetToolDef(
+                tool_info["id_in_robot"], tool_info["tool_def"])
+        self.robot.set_tool(tool_info["id_in_robot"])
 
     def init_realtime(self):
         os_used = sys.platform
@@ -120,6 +144,8 @@ class Cobotta_Pro_CON:
     def control_loop(self):
         self.last = 0
         print("[CNT]Start Main Loop")
+        self.pose[19] = 0
+        self.pose[20] = 0
         while True:
             # NOTE: テスト用データなど、時間が経つにつれて
             # targetの値がstateの値によらずにどんどん
@@ -131,21 +157,21 @@ class Cobotta_Pro_CON:
             # targetはstateに依存するのでまた別に考える
 
             # 現在情報を取得しているかを確認
-            if self.pose[0:6].sum() == 0:
+            if self.pose[19] != 1:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
-                if self.pose[15] == 2:
-                    break
+                if self.pose[16] == 1:
+                    return True
                 continue
 
             # 目標値を取得しているかを確認
-            if self.pose[6:12].sum() == 0:
+            if self.pose[20] != 1:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for target..")
                 # 取得する前に終了する場合即時終了可能
-                if self.pose[15] == 2:
-                    break
+                if self.pose[16] == 1:
+                    return True
                 continue 
 
             # 関節の状態値
@@ -189,12 +215,12 @@ class Cobotta_Pro_CON:
                     _filter = SMAFilter(n_windows=n_windows)
                     _filter.reset(state)
 
-                self.last_control_velocity = None
+                self.last_control_velocity = np.zeros(6)
                 continue
 
             # リアルタイム制御を止める場合は入ってくる目標値を同じにして
             # ロボットを静止させる
-            if self.pose[15] == 2:
+            if self.pose[16] == 1:
                 target = self.last_target
             else:
                 target = self.pose[6:12].copy()
@@ -296,14 +322,13 @@ class Cobotta_Pro_CON:
             target_diff_speed_limited = v * dt
 
             # 加速度制限
-            if self.last_control_velocity is not None:
-                a = (v - self.last_control_velocity) / dt
-                accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
-                accel_max_ratio = np.max(accel_ratio)
-                if accel_max_ratio > 1:
-                    a /= accel_max_ratio
-                v = self.last_control_velocity + a * dt
-                target_diff_speed_limited = v * dt
+            a = (v - self.last_control_velocity) / dt
+            accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
+            accel_max_ratio = np.max(accel_ratio)
+            if accel_max_ratio > 1:
+                a /= accel_max_ratio
+            v = self.last_control_velocity + a * dt
+            target_diff_speed_limited = v * dt
 
             # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
             # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
@@ -390,23 +415,12 @@ class Cobotta_Pro_CON:
                         time.sleep(t_wait)
 
             else:
-                # VRコントローラから位置は動かさずにハンドのみ動かしたい場合コメントアウトする
-                # if self.pose[13] == 1:
-                #     th1 = threading.Thread(target=self.send_grip)
-                #     th1.start()
-                #     self.pose[13] = 0
-
-                # if self.pose[13] == 2:
-                #     th2 = threading.Thread(target=self.send_release)
-                #     th2.start()
-                #     self.pose[13] = 0
-
                 t_elapsed = time.time() - now
                 t_wait = t_intv - t_elapsed
                 if t_wait > 0:
                     time.sleep(t_wait)
 
-            if self.pose[15] == 2:
+            if self.pose[16] == 1:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
                 if (control == self.last_control).all():
@@ -415,24 +429,27 @@ class Cobotta_Pro_CON:
             self.last_control = control
             self.last = now
 
-    def send_grip(self, force: int = 20):
-        if hand_mode == "b-CAP":
+    def send_grip(self):
+        if self.tool_id == -1:
+            return
+        if self.hand_name == "onrobot_2fg7":
             # NOTE: 呼ぶ度に目標の把持力は変更できるので
             # VRコントローラーからの入力で動的に把持力を
             # 変えることもできる (どういう仕組みを作るかは別)
-            self.robot.TwofgStop()
-            self.robot.TwofgGrip(force=force, waiting=0)
-        else:
-            self.robot.TwofgStopXmlRpc()
-            self.robot.TwofgGripXmlRpc(waiting=0)
+            self.hand.grip(waiting=False)
+        elif self.hand_name == "onrobot_vgc10":
+            self.hand.grip(waiting=False)
 
     def send_release(self):
-        if hand_mode == "b-CAP":
-            self.robot.TwofgStop()
-            self.robot.TwofgRelease(waiting=0)
-        else:
-            self.robot.TwofgStopXmlRpc()
-            self.robot.TwofgReleaseXmlRpc(waiting=0)
+        if self.tool_id == -1:
+            return
+        if self.hand_name == "onrobot_2fg7":
+            # NOTE: 呼ぶ度に目標の把持力は変更できるので
+            # VRコントローラーからの入力で動的に把持力を
+            # 変えることもできる (どういう仕組みを作るかは別)
+            self.hand.release(waiting=False)
+        elif self.hand_name == "onrobot_vgc10":
+            self.hand.release(waiting=False)
 
     def enable(self) -> bool:
         self.robot.enable_robot()
@@ -454,7 +471,8 @@ class Cobotta_Pro_CON:
         # self.pose[14]は1のとき基本的にスレーブモードだが、
         # 変化前後の短い時間は通常モードの可能性がある。
         # 順番固定
-        self.pose[14] = 1
+        with self.slave_mode_lock:
+            self.pose[14] = 1
         self.robot.enter_servo_mode()
 
     def leave_servo_mode(self):
@@ -480,6 +498,7 @@ class Cobotta_Pro_CON:
             print(f"[CNT]: {self.robot.format_error(e)}")
             self.leave_servo_mode()
             self.pose[15] = 0
+            self.pose[16] = 0
             return
 
         while True:
@@ -495,7 +514,7 @@ class Cobotta_Pro_CON:
                 print(f"[CNT]: Error in control loop: {errors}")
                 # ユーザーが停止させようとしてきちんと停止しなかった場合
                 # エラーによらず通常モードに戻る。
-                if self.pose[15] == 2:
+                if self.pose[16] == 1:
                     print("[CNT]: User required stop and not successfully done")
                     break
                 # 自動復帰可能エラー
@@ -522,11 +541,153 @@ class Cobotta_Pro_CON:
                     print("[CNT]: Error is not automatically recoverable")
                     break
         self.pose[15] = 0
+        self.pose[16] = 0
 
-    def run_proc(self, control_pipe):
+    def control_loop_w_tool_change(self):
+        # リアルタイム制御中にツールチェンジする
+        while True:
+            self.control_loop_w_recover_automatic()
+            next_tool_id = self.pose[17]
+            if next_tool_id != 0:
+                try:
+                    self.pose[18] = 0
+                    self.tool_change(next_tool_id)
+                except ORiNException as e:
+                    print("[CNT]: Error during tool change")
+                    print(f"[CNT]: {self.robot.format_error(e)}")
+                finally:
+                    self.pose[18] = 0
+                    self.pose[17] = 0
+            else:
+                break
+
+    def get_tool_info(
+        self, tool_infos: List[Dict[str, Any]], tool_id: int) -> Dict[str, Any]:
+        return [tool_info for tool_info in tool_infos
+                if tool_info["id"] == tool_id][0]
+
+    def tool_change(self, next_tool_id: int) -> None:
+        self.pose[18] = 1
+        while True:
+            if self.pose[18] == 2:
+                break
+            time.sleep(0.008)
+        if next_tool_id == self.tool_id:
+            print("Selected tool is current tool.")
+            self.pose[18] = 0
+            return
+        tool_info = self.get_tool_info(tool_infos, self.tool_id)
+        next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
+        # ツールチェンジで行うと予想される仮動作として実装
+        # ワークから離れるため、真上のTCP位置を記録しそこへ移動する
+        current_pose = self.robot.get_current_pose()
+        # diff = [0, 0, 100, 0, 0, 0]
+        diff = [0, 0, 0, 0, 0, 0]
+        up_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
+        self.robot.move_pose(up_pose)
+        # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
+        self.robot.SetAreaEnabled(0, False)
+        # アームの先端の位置で制御する（現在のツールに依存しない）
+        self.robot.set_tool(0)
+
+        # 現在のツールとの接続を切る
+        # 現在ツールが付いていないとき
+        if tool_info["id"] == -1:
+            assert next_tool_info["id"] != -1
+        # 現在ツールが付いているとき
+        else:
+            self.hand.disconnect()
+        self.pose[18] = 3
+        while True:
+            if self.pose[18] == 4:
+                break
+            time.sleep(0.008)
+
+        # 現在ツールが付いていないとき
+        if tool_info["id"] == -1:
+            assert next_tool_info["id"] != -1
+            wps = next_tool_info["holder_waypoints"]
+            self.robot.move_pose(wps["enter_path"])
+            self.robot.move_pose(wps["disengaged"])
+            self.robot.ext_speed(speed_tool_change)
+            self.robot.move_pose(wps["tool_holder"])
+            time.sleep(1)
+            self.robot.move_pose(wps["locked"])
+            name = next_tool_info["name"]
+            hand = tool_classes[name]()
+            connected = hand.connect_and_setup()
+            # NOTE: 接続できなければ止めたほうが良いと考える
+            if not connected:
+                raise ValueError(f"Failed to connect to hand: {name}")
+            self.pose[18] = 5
+            while True:
+                if self.pose[18] == 6:
+                    break
+                time.sleep(0.008)
+            self.robot.ext_speed(speed_normal)
+            self.robot.move_pose(wps["exit_path_1"])
+            self.robot.move_pose(wps["exit_path_2"])
+        # 現在ツールが付いているとき
+        else:
+            wps = tool_info["holder_waypoints"]
+            self.robot.move_pose(wps["exit_path_2"])
+            self.robot.move_pose(wps["exit_path_1"])
+            self.robot.move_pose(wps["locked"])
+            self.robot.ext_speed(speed_tool_change)
+            self.robot.move_pose(wps["tool_holder"])
+            time.sleep(1)
+            self.robot.move_pose(wps["disengaged"])
+            if next_tool_info["id"] == -1:
+                self.pose[18] = 5
+                while True:
+                    if self.pose[18] == 6:
+                        break
+                    time.sleep(0.008)
+                self.robot.ext_speed(speed_normal)
+                self.robot.move_pose(wps["enter_path"])
+            else:
+                wps = next_tool_info["holder_waypoints"]
+                self.robot.ext_speed(speed_normal)
+                self.robot.move_pose(wps["disengaged"])
+                self.robot.ext_speed(speed_tool_change)
+                self.robot.move_pose(wps["tool_holder"])
+                time.sleep(1)
+                self.robot.move_pose(wps["locked"])
+                name = next_tool_info["name"]
+                hand = tool_classes[name]()
+                connected = hand.connect_and_setup()
+                # NOTE: 接続できなければ止めたほうが良いと考える
+                if not connected:
+                    raise ValueError(f"Failed to connect to hand: {name}")
+                self.pose[18] = 5
+                while True:
+                    if self.pose[18] == 6:
+                        break
+                    time.sleep(0.008)
+                self.robot.ext_speed(speed_normal)
+            self.robot.move_pose(wps["exit_path_1"])
+            self.robot.move_pose(wps["exit_path_2"])
+                
+        # 以下の移動後、ツールチェンジ前後でのTCP位置は変わらない
+        # （ツールの大きさに応じてアームの先端の位置が変わる）
+        if next_tool_info["id"] != -1:
+            self.robot.SetToolDef(
+                next_tool_info["id_in_robot"], next_tool_info["tool_def"])
+        self.robot.set_tool(next_tool_info["id_in_robot"])
+        self.robot.move_pose(up_pose)
+        # エリア機能を有効にする
+        self.robot.SetAreaEnabled(0, True)
+        self.hand_name = name
+        self.hand = hand
+        self.tool_id = next_tool_id
+        self.pose[18] = 0
+        return
+
+    def run_proc(self, control_pipe, slave_mode_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((16,), dtype=np.dtype("float32"), buffer=self.sm.buf)
-        
+        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.slave_mode_lock = slave_mode_lock
+ 
         self.init_robot()
         self.init_realtime()
         while True:
@@ -534,7 +695,7 @@ class Cobotta_Pro_CON:
             try:
                 if command["command"] == "enable":
                     self.enable()
-                if command["command"] == "disable":
+                elif command["command"] == "disable":
                     self.disable()
                 elif command["command"] == "default_pose":
                     self.default_pose()
@@ -545,7 +706,21 @@ class Cobotta_Pro_CON:
                 elif command["command"] == "clear_error":
                     self.clear_error()
                 elif command["command"] == "start_rt_control":
-                    self.control_loop_w_recover_automatic()
+                    self.control_loop_w_tool_change()
+                elif command["command"] == "tool_change":
+                    while True:
+                        next_tool_id = self.pose[17]
+                        if next_tool_id != 0:
+                            try:
+                                self.pose[18] = 0
+                                self.tool_change(next_tool_id)
+                            except ORiNException as e:
+                                print("[CNT]: Error during tool change")
+                                print(f"[CNT]: {self.robot.format_error(e)}")
+                            finally:
+                                self.pose[18] = 0
+                                self.pose[17] = 0
+                                break
             except Exception as e:
                 self.leave_servo_mode()
                 print(f"[CNT]: {self.robot.format_error(e)}")
