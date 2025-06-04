@@ -76,7 +76,8 @@ default_joints = {
     # 毎回の値も[0, 0, 0, 0, 0, 0]が飛んでくる気がする
     "vr2": [115.55677, 5.86272, 135.70465, 110.53529, -15.55474 + 90, 35.59977],
     # NOTE: 2025/05/30での新しい位置
-    "vr3": [113.748, 5.645, 136.098, 109.059, 75.561, 35.82]
+    # NOTE(20250604): 一時的な対応 (-180)。VR側で修正され次第削除。
+    "vr3": [113.748 - 180, 5.645, 136.098, 109.059, 75.561, 35.82]
 }
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
@@ -173,6 +174,12 @@ class Cobotta_Pro_CON:
                 if self.pose[16] == 1:
                     return True
                 continue 
+
+            # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
+            # state = self.pose[:6].copy()
+            # target = self.pose[6:12].copy()
+            # if np.any(np.abs(state - target) > 0.01):
+            #     continue
 
             # 関節の状態値
             state = self.pose[:6].copy()
