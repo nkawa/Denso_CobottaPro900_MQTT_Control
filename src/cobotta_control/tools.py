@@ -53,10 +53,27 @@ tool_infos = [
         "tool_def": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         "id_in_robot": 3,
     },
+    {
+        "id": 4,
+        "name": "plate_holder",
+        # NOTE(20250530): 4つめのツール (座標は仮)
+        "holder_waypoints": {
+            "enter_path": [681.39, 444.11, 21.20 + 200, 180, 0, -90],
+            "disengaged": [681.39, 444.11, 21.20 + 30, 180, 0, -90],
+            "tool_holder": [681.39, 444.11, 21.20, 180, 0, -90],
+            "locked": [681.39, 444.11 + 30, 21.20, 180, 0, -90],
+            "exit_path_1": [681.39, 444.11 + 120, 21.20, 180, 0, -90],
+            "exit_path_2": [681.39, 444.11 + 120, 21.20 + 200, 180, 0, -90],
+        },
+        "tool_def": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        "id_in_robot": 4,
+    },
 ]
 
 tool_classes = {
+    "no_tool": DummyHandControl,
     "onrobot_2fg7": TWOFGControl,
     "onrobot_vgc10": VGC10Control,
     "cutter": DummyHandControl,
+    "plate_holder": DummyHandControl,
 }
