@@ -86,7 +86,9 @@ abs_joint_soft_limit = abs_joint_limit - 10
 # 外部速度。単位は%
 speed_normal = 10
 speed_tool_change = 2
-
+# 目標値が状態値よりこの制限より大きく乖離した場合はロボットを停止させる
+# 設定値は典型的なVRコントローラの動きから決定した
+target_state_abs_joint_diff_limit = [30, 30, 40, 40, 40, 60]
 
 save_control = SAVE
 if save_control:
@@ -143,11 +145,14 @@ class Cobotta_Pro_CON:
             else:
                 print("Process real-time priority set to: %u" % rt_app_priority)
 
-    def control_loop(self):
+    def control_loop(self) -> Tuple[bool, str]:
         self.last = 0
         print("[CNT]Start Main Loop")
         self.pose[19] = 0
         self.pose[20] = 0
+        target_stop = None
+        code_stop = 0
+        message_stop = "Interrupted"
         while True:
             # NOTE: テスト用データなど、時間が経つにつれて
             # targetの値がstateの値によらずにどんどん
@@ -157,14 +162,15 @@ class Cobotta_Pro_CON:
             # 待っている。もしもっと待つと最初に
             # ガッとロボットが動いてしまう。実際のシステムでは
             # targetはstateに依存するのでまた別に考える
+            stop = self.pose[16]
 
             # 現在情報を取得しているかを確認
             if self.pose[19] != 1:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
-                if self.pose[16] == 1:
-                    return True
+                if stop:
+                    return True, message_stop
                 continue
 
             # 目標値を取得しているかを確認
@@ -172,9 +178,9 @@ class Cobotta_Pro_CON:
                 time.sleep(t_intv)
                 # print("[CNT]Wait for target..")
                 # 取得する前に終了する場合即時終了可能
-                if self.pose[16] == 1:
-                    return True
-                continue 
+                if stop:
+                    return True, message_stop
+                continue
 
             # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
             # state = self.pose[:6].copy()
@@ -185,14 +191,45 @@ class Cobotta_Pro_CON:
             # 関節の状態値
             state = self.pose[:6].copy()
 
+            # 目標値
+            target = self.pose[6:12].copy()
+            target_raw = target
+
+            # 目標値の角度が360度の不定性が許される場合 (1度と-359度を区別しない場合) でも
+            # 実機の関節の角度は360度の不定性が許されないので
+            # 状態値に最も近い目標値に規格化する
+            # TODO: VRと実機の関節の角度が360度の倍数だけずれた状態で、
+            # 実機側で制限値を超えると動くVRと動かない実機との間に360度の倍数で
+            # ないずれが生じ、急に実機が動く可能性があるので、VR側で
+            # 実機との比較をし、実機側で制限値を超えることがないようにする必要がある
+            # とりあえず急に動こうとすれば止まる仕組みは入れている
+            target = state + (target - state + 180) % 360 - 180
+
+            # TODO: VR側でもソフトリミットを設定したほうが良い
+            target_th = np.maximum(target, -abs_joint_soft_limit)
+            if (target == target_th).any():
+                pass
+                # print("[CNT]: Warning: target reached minimum threshold")
+            target_th = np.minimum(target_th, abs_joint_soft_limit)
+            if (target == target_th).any():
+                pass
+                # print("[CNT]: Warning: target reached maximum threshold")
+            target = target_th
+
+            # 目標値が状態値から大きく離れた場合は制御を停止する
+            if (np.abs(target - state) > 
+                target_state_abs_joint_diff_limit).any():
+                stop = 1
+                code_stop = 1
+                message_stop = "目標値が状態値から離れすぎています"
+
             now = time.time()
             if self.last == 0:
                 print("[CNT]Starting to Control!",self.pose)
+                # 制御する前に終了する場合即時終了可能
+                if stop:
+                    return True, message_stop
                 self.last = now
-                target = self.pose[6:12].copy()
-
-                # j4の角度の制限値を±270に緩める用
-                self.last_target = target
 
                 # 目標値を遅延を許して極力線形補間するためのセットアップ
                 if use_interp:
@@ -226,34 +263,14 @@ class Cobotta_Pro_CON:
                 self.last_control_velocity = np.zeros(6)
                 continue
 
-            # リアルタイム制御を止める場合は入ってくる目標値を同じにして
-            # ロボットを静止させる
-            if self.pose[16] == 1:
-                target = self.last_target
-            else:
-                target = self.pose[6:12].copy()
-            target_raw = target
-
-            # HACK: 現状、例えば、関節の角度が175度から180度をまたぎ185度に変化するとき、
-            # VRの関節の角度の値は175度から-175度に変化するが、
-            # ロボットの関節の角度の変化が-350度になり大きい
-            # 代わりにロボットの関節の角度の変化が10度になるように規格化する
-            # ロボットの関節の角度は185度になるが、ロボットの関節の角度の範囲内であれば
-            # 問題ない。限界値を超えたら限界値を送るようにする
-            # 本来はVR（IK）側で対応すべき
-            target_norm = self.last_target + (target - self.last_target + 180) % 360 - 180
-            target = target_norm
-            self.last_target = target
-
-            target_th = np.maximum(target, -abs_joint_soft_limit)
-            if (target == target_th).any():
-                pass
-                # print("[CNT]: Warning: target reached minimum threshold")
-            target_th = np.minimum(target_th, abs_joint_soft_limit)
-            if (target == target_th).any():
-                pass
-                # print("[CNT]: Warning: target reached maximum threshold")
-            target = target_th
+            # 制御値を送り済みの場合は
+            # 目標値を状態値にしてロボットを静止させてから止める
+            # 厳密にはここに初めて到達した場合は制御値は送っていないが
+            # 簡潔さのため同じように扱う
+            if stop:
+                if target_stop is None:
+                    target_stop = state
+                target = target_stop
 
             # target_delayedは、delay秒前の目標値を前後の値を
             # 使って線形補間したもの
@@ -404,7 +421,7 @@ class Cobotta_Pro_CON:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
                     if not self.robot.is_error_level_0(e):
-                        return False
+                        return 2, "Error occurred"
 
                 if self.pose[13] == 1:
                     th1 = threading.Thread(target=self.send_grip)
@@ -428,11 +445,11 @@ class Cobotta_Pro_CON:
                 if t_wait > 0:
                     time.sleep(t_wait)
 
-            if self.pose[16] == 1:
+            if stop:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
                 if (control == self.last_control).all():
-                    return True
+                    return code_stop, message_stop
                 
             self.last_control = control
             self.last = now
@@ -510,12 +527,15 @@ class Cobotta_Pro_CON:
             return
 
         while True:
-            successfully_stopped = self.control_loop()
+            code_stop, message_stop = self.control_loop()
             self.leave_servo_mode()
-            if successfully_stopped:
+            if code_stop == 0:
                 print("[CNT]: User required stop and successfully done")
                 break
             else:
+                if code_stop == 1:
+                    print(f"[CNT]: {message_stop}")
+                    break
                 # 自動復帰の前にエラーを確実にモニタするため待機
                 time.sleep(1)
                 errors = self.robot.get_cur_error_info_all()
