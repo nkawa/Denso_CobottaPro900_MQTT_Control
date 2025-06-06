@@ -23,7 +23,7 @@ from denso_robot import E_ACCEL_AUTO_RECOVERABLE_SET, E_AUTO_RECOVERABLE_SET, E_
 
 from filter import SMAFilter
 from interpolate import DelayedInterpolator
-from cobotta_control.tools import tool_infos, tool_classes
+from cobotta_control.tools import tool_infos, tool_classes, tool_base
 
 
 # パラメータ
@@ -613,7 +613,8 @@ class Cobotta_Pro_CON:
         # diff = [0, 0, 100, 0, 0, 0]
         diff = [0, 0, 0, 0, 0, 0]
         up_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
-        self.robot.move_pose(up_pose)
+        self.robot.move_pose(up_pose, fig=-3)
+        self.robot.move_pose(tool_base, fig=-3)
         # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
         self.robot.SetAreaEnabled(0, False)
         # アームの先端の位置で制御する（現在のツールに依存しない）
@@ -674,7 +675,30 @@ class Cobotta_Pro_CON:
                     time.sleep(0.008)
                 self.robot.ext_speed(speed_normal)
                 self.robot.move_pose(wps["enter_path"])
-            else:
+            elif tool_info["holder_region"] == next_tool_info["holder_region"]:
+                wps = next_tool_info["holder_waypoints"]
+                self.robot.ext_speed(speed_normal)
+                self.robot.move_pose(wps["disengaged"])
+                self.robot.ext_speed(speed_tool_change)
+                self.robot.move_pose(wps["tool_holder"])
+                time.sleep(1)
+                self.robot.move_pose(wps["locked"])
+                name = next_tool_info["name"]
+                hand = tool_classes[name]()
+                connected = hand.connect_and_setup()
+                # NOTE: 接続できなければ止めたほうが良いと考える
+                if not connected:
+                    raise ValueError(f"Failed to connect to hand: {name}")
+                self.pose[18] = 5
+                while True:
+                    if self.pose[18] == 6:
+                        break
+                    time.sleep(0.008)
+                self.robot.ext_speed(speed_normal)
+            elif tool_info["holder_region"] != next_tool_info["holder_region"]:
+                self.robot.ext_speed(speed_normal)
+                self.robot.move_pose(wps["enter_path"])
+                self.robot.move_pose(tool_base, fig=-3)
                 wps = next_tool_info["holder_waypoints"]
                 self.robot.ext_speed(speed_normal)
                 self.robot.move_pose(wps["disengaged"])
@@ -703,7 +727,8 @@ class Cobotta_Pro_CON:
             self.robot.SetToolDef(
                 next_tool_info["id_in_robot"], next_tool_info["tool_def"])
         self.robot.set_tool(next_tool_info["id_in_robot"])
-        self.robot.move_pose(up_pose)
+        self.robot.move_pose(tool_base, fig=-3)
+        self.robot.move_pose(up_pose, fig=-3)
         # エリア機能を有効にする
         self.robot.SetAreaEnabled(0, True)
         self.hand_name = name
