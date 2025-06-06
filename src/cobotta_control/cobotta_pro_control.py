@@ -76,8 +76,9 @@ default_joints = {
     # 毎回の値も[0, 0, 0, 0, 0, 0]が飛んでくる気がする
     "vr2": [115.55677, 5.86272, 135.70465, 110.53529, -15.55474 + 90, 35.59977],
     # NOTE: 2025/05/30での新しい位置
-    # NOTE(20250604): 一時的な対応 (-180)。VR側で修正され次第削除。
-    "vr3": [113.748 - 180, 5.645, 136.098, 109.059, 75.561, 35.82]
+    "vr3": [113.748, 5.645, 136.098, 109.059, 75.561, 35.82],
+    # NOTE: 2025/06/05 での新しい位置
+    "vr4": [-46.243, 10.258, 128.201, 125.629, 62.701, 32.618]
 }
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
@@ -94,7 +95,7 @@ if save_control:
 
 class Cobotta_Pro_CON:
     def __init__(self):
-        self.default_joint = default_joints["vr3"]
+        self.default_joint = default_joints["vr4"]
         self.tidy_joint = default_joints["tidy"]
 
     def init_robot(self):

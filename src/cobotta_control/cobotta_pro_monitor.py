@@ -195,6 +195,7 @@ class Cobotta_Pro_MON:
             forces = self.robot.ForceValue()
             actual_joint_js["forces"] = forces
 
+            # ツール依存の部分はまとめるべき
             if self.tool_id == -1:
                 width = None
                 force = None
@@ -206,6 +207,9 @@ class Cobotta_Pro_MON:
                     width = None
                     force = None
                 elif self.hand_name == "cutter":
+                   width = None
+                   force = None
+                elif self.hand_name == "plate_holder":
                    width = None
                    force = None
 
