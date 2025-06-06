@@ -83,7 +83,7 @@ class Cobotta_Pro_MQTT:
                 # NOTE(20250530): 現状はこれでうまくいくがVR側との意思疎通が必要
                 # joint_q[4] = joint_q[4] + 90
                 # NOTE(20250604): 一時的な対応。VR側で修正され次第削除。
-                joint_q[0] = joint_q[0] - 180
+                # joint_q[0] = joint_q[0] - 180
             else:
                 raise ValueError
             self.pose[6:12] = joint_q 

@@ -1,6 +1,6 @@
 # Cobotta Proを制御する
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Tuple
 import datetime
 import time
 
@@ -78,7 +78,8 @@ default_joints = {
     # NOTE: 2025/05/30での新しい位置
     "vr3": [113.748, 5.645, 136.098, 109.059, 75.561, 35.82],
     # NOTE: 2025/06/05 での新しい位置
-    "vr4": [-46.243, 10.258, 128.201, 125.629, 62.701, 32.618]
+    "vr4": [-46.243, 10.258, 128.201, 125.629, 62.701, 32.618],
+    "vr5": [-66.252, 5.645, 136.098, 109.059, 75.561, 35.82],
 }
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
@@ -97,7 +98,7 @@ if save_control:
 
 class Cobotta_Pro_CON:
     def __init__(self):
-        self.default_joint = default_joints["vr4"]
+        self.default_joint = default_joints["vr5"]
         self.tidy_joint = default_joints["tidy"]
 
     def init_robot(self):
