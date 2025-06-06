@@ -5,6 +5,46 @@ import multiprocessing
 from tkinter import scrolledtext
 
 from cobotta_control.cobotta_pro_mqtt_control import ProcessManager
+from cobotta_control.tools import tool_infos
+
+
+tool_ids = [tool_info["id"] for tool_info in tool_infos]
+
+
+class ToolChangePopup(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result = None
+        # 親ウインドウの手前に表示
+        self.transient(parent)
+        # すべてのイベントをポップアップで捕捉
+        self.grab_set()
+        self.title("Tool Change")
+        # ポップアップを閉じるときの処理を上書き
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        tk.Label(self, text="Select a tool:").pack(pady=10)
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(pady=5)
+        names = [f"Tool {i}" for i in tool_ids] + ["Cancel"]
+        for name in names:
+            b = tk.Button(btn_frame, text=name, width=10,
+                          command=lambda n=name: self.button_pressed(n))
+            b.pack(side=tk.LEFT, padx=5)
+
+        # ポップアップが閉じるまで待機    
+        self.wait_window()
+    
+    def button_pressed(self, name):
+        if name == "Cancel":
+            self.result = None
+        else:
+            self.result = int(name.split(" ")[1])
+        self.destroy()
+
+    def on_close(self):
+        self.result = None
+        self.destroy()
 
 
 class MQTTWin:
@@ -17,10 +57,6 @@ class MQTTWin:
         self.root.title("MQTT-CobottaPro900 Controller")
         self.root.geometry("600x800")
 
-        # NOTE: デモ用
-        from itertools import cycle
-        self.tool_ids = cycle([1, 2])
-        
         for col in range(4):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
         
@@ -200,7 +236,11 @@ class MQTTWin:
     def ToolChange(self):
         if not self.pm.state_control:
             return
-        self.pm.tool_change(next(self.tool_ids))
+        popup = ToolChangePopup(self.root)
+        tool_id = popup.result
+        if tool_id is None:
+            return
+        self.pm.tool_change(tool_id)
 
     def update_monitor(self):
         if not self.pm.state_monitor:
@@ -247,8 +287,6 @@ if __name__ == '__main__':
     # ファイルの情報が正確かいまのところ保証できないので、指定してもらう
     import argparse
     parser = argparse.ArgumentParser()
-    from cobotta_control.tools import tool_infos
-    tool_ids = [tool_info["id"] for tool_info in tool_infos]
     parser.add_argument(
         "--tool-id",
         type=int,

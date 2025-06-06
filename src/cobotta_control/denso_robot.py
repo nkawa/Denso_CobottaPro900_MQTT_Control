@@ -256,11 +256,13 @@ class DensoRobot:
         logger.info("move_default_pose")
         self.move_pose(self._default_pose)
 
-    def move_pose(self, pose, option: str = ""):
+    def move_pose(self, pose, interpolation: int = 1, fig: Optional[int] = None, option: str = ""):
         """
         option: 動作オプション。"NEXT": 非同期実行オプション
         """
         pose = self._add_fig_if_necessary(pose)
+        if fig is not None:
+            pose[6] = fig
         prev_servo_mode = self.is_in_servo_mode()
         if prev_servo_mode:
             self.leave_servo_mode()
@@ -277,7 +279,7 @@ class DensoRobot:
         # @Pは、目標位置の近く（自動設定）にエンコーダ値が到達したら次のコマンドに移行する。
         # @<数字>は、@Pを、目標位置の近くを数字（mm）に設定した上で実行。
         # P(X, Y, Z, Rx, Ry, Rz, Fig)はTCP点の位置、姿勢、形態
-        self._bcap.robot_move(self._hRob, 1, f"@E P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
+        self._bcap.robot_move(self._hRob, interpolation, f"@E P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
         if prev_servo_mode:
             self.enter_servo_mode()
 
