@@ -183,6 +183,8 @@ class Cobotta_Pro_MON:
                 # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
                 # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
                 # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
+                # NOTE(20250604): 一時的な対応。VR側で修正され次第削除。
+                # actual_joint_js["joints"][0] = actual_joint_js["joints"][0] + 180
             else:
                 raise ValueError
             
