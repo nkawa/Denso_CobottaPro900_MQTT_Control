@@ -274,7 +274,9 @@ class Cobotta_Pro_MON:
                     error=error,
                     time=now,
                     enabled=enabled,
-                    tool_id=tool_id,
+                    # TypeError: Object of type float32 is not JSON
+                    # serializableへの対応
+                    tool_id=float(tool_id),
                 )
                 js = json.dumps(datum, ensure_ascii=False)
                 f.write(js + "\n")
