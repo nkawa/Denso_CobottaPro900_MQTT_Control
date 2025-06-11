@@ -165,7 +165,7 @@ class Cobotta_Pro_MON:
                 last_error_monitored = now
 
             # ツールチェンジ
-            next_tool_id = self.pose[17]
+            next_tool_id = self.pose[17].copy()
             if next_tool_id != 0:
                 self.tool_change(next_tool_id)
 
@@ -195,8 +195,10 @@ class Cobotta_Pro_MON:
             forces = self.robot.ForceValue()
             actual_joint_js["forces"] = forces
 
+            tool_id = self.tool_id
+            actual_joint_js["tool_id"] = tool_id
             # ツール依存の部分はまとめるべき
-            if self.tool_id == -1:
+            if tool_id == -1:
                 width = None
                 force = None
             else:
@@ -270,6 +272,7 @@ class Cobotta_Pro_MON:
                     error=error,
                     time=now,
                     enabled=enabled,
+                    tool_id=tool_id,
                 )
                 js = json.dumps(datum, ensure_ascii=False)
                 f.write(js + "\n")
