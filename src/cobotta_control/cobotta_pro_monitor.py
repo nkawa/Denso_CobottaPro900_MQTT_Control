@@ -257,6 +257,8 @@ class Cobotta_Pro_MON:
                 jss = json.dumps(actual_joint_js)
                 self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
                 with self.monitor_lock:
+                    actual_joint_js["topic_type"] = "robot"
+                    actual_joint_js["topic"] = MQTT_ROBOT_STATE_TOPIC
                     self.monitor_dict.clear()
                     self.monitor_dict.update(actual_joint_js)
                 last = now

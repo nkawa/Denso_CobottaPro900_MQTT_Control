@@ -55,6 +55,11 @@ class Cobotta_Pro_MQTT:
                 "devId": ROBOT_UUID,
             }
             self.client.publish(MQTT_MANAGE_TOPIC + "/register", json.dumps(info))
+            with self.mqtt_control_lock:
+                info["topic_type"] = "mgr/register"
+                info["topic"] = MQTT_MANAGE_TOPIC + "/register"
+                self.mqtt_control_dict.clear()
+                self.mqtt_control_dict.update(info)
             print("publish to: " + MQTT_MANAGE_TOPIC + "/register")
             self.client.subscribe(MQTT_MANAGE_RCV_TOPIC)
             print("subscribe to: " + MQTT_MANAGE_RCV_TOPIC)
@@ -106,6 +111,11 @@ class Cobotta_Pro_MQTT:
                     self.pose[17] = tool
             
             self.pose[20] = 1
+            with self.mqtt_control_lock:
+                js["topic_type"] = "control"
+                js["topic"] = msg.topic
+                self.mqtt_control_dict.clear()
+                self.mqtt_control_dict.update(js)
 
         elif msg.topic == MQTT_MANAGE_RCV_TOPIC:
             if MQTT_MODE == "metawork":
@@ -119,6 +129,11 @@ class Cobotta_Pro_MQTT:
                     self.mqtt_ctrl_topic = mqtt_ctrl_topic
                 self.client.subscribe(self.mqtt_ctrl_topic)
                 print("subscribe to: " + self.mqtt_ctrl_topic)
+                with self.mqtt_control_lock:
+                    js["topic_type"] = "dev"
+                    js["topic"] = msg.topic
+                    self.mqtt_control_dict.clear()
+                    self.mqtt_control_dict.update(js)
         else:
             print("not subscribe msg", msg.topic)
 
@@ -131,10 +146,11 @@ class Cobotta_Pro_MQTT:
         self.client.connect(MQTT_SERVER, 1883, 60)
         self.client.loop_forever()   # 通信処理開始
 
-    def run_proc(self):
+    def run_proc(self, mqtt_control_dict, mqtt_control_lock):
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
-
+        self.mqtt_control_dict = mqtt_control_dict
+        self.mqtt_control_lock = mqtt_control_lock
         self.connect_mqtt()
 
 
@@ -177,6 +193,8 @@ class ProcessManager:
         self.manager = multiprocessing.Manager()
         self.monitor_dict = self.manager.dict()
         self.monitor_lock = self.manager.Lock()
+        self.mqtt_control_dict = self.manager.dict()
+        self.mqtt_control_lock = self.manager.Lock()
         self.slave_mode_lock = multiprocessing.Lock()
         self.main_pipe, self.control_pipe = multiprocessing.Pipe()
         self.state_recv_mqtt = False
@@ -185,7 +203,10 @@ class ProcessManager:
 
     def startRecvMQTT(self):
         self.recv = Cobotta_Pro_MQTT()
-        self.recvP = Process(target=self.recv.run_proc, args=(),name="MQTT-recv")
+        self.recvP = Process(
+            target=self.recv.run_proc,
+            args=(self.mqtt_control_dict, self.mqtt_control_lock),
+            name="MQTT-recv")
         self.recvP.start()
         self.state_recv_mqtt = True
 
@@ -252,6 +273,11 @@ class ProcessManager:
         with self.monitor_lock:
             monitor_dict = self.monitor_dict.copy()
         return monitor_dict
+    
+    def get_current_mqtt_control_log(self):
+        with self.mqtt_control_lock:
+            mqtt_control_dict = self.mqtt_control_dict.copy()
+        return mqtt_control_dict
 
     def __del__(self):
         self.sm.close()
