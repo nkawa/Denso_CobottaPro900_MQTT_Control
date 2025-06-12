@@ -536,6 +536,10 @@ class Cobotta_Pro_CON:
             else:
                 if code_stop == 1:
                     print(f"[CNT]: {message_stop}")
+                    # FIXME: 現状は現在地と目標値の乖離による場合は、
+                    # GUIのランプがOFFになる以外に、実験者が耳でも気づくように、
+                    # モーターの電源を切ることにする
+                    self.disable()
                     break
                 # 自動復帰の前にエラーを確実にモニタするため待機
                 time.sleep(1)
