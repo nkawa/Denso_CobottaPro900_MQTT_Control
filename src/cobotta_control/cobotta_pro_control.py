@@ -651,13 +651,8 @@ class Cobotta_Pro_CON:
             return
         tool_info = self.get_tool_info(tool_infos, self.tool_id)
         next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
-        # ツールチェンジで行うと予想される仮動作として実装
-        # ワークから離れるため、真上のTCP位置を記録しそこへ移動する
-        current_pose = self.robot.get_current_pose()
-        # diff = [0, 0, 100, 0, 0, 0]
-        diff = [0, 0, 0, 0, 0, 0]
-        up_pose = (np.asarray(current_pose) + np.asarray(diff)).tolist()
-        self.robot.move_pose(up_pose, fig=-3)
+        # ツールチェンジはワークから十分離れた場所で行うことを仮定
+        current_joint = self.robot.get_current_joint()
         self.robot.move_pose(tool_base, fig=-3)
         # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
         self.robot.SetAreaEnabled(0, False)
@@ -780,7 +775,12 @@ class Cobotta_Pro_CON:
             self.robot.move_pose(
                 [-229.66, -613.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
         else:
-            self.robot.move_pose(up_pose, fig=-3)
+            # ツールチェンジ後に実機をVRに合わせる場合
+            # ツールチェンジ前の位置だけでなく関節角度も合わせる必要がある
+            # ツールチェンジ後にVRを実機に合わせる場合は必ずしも
+            # その限りではないが、関節空間での補間に悪影響があるかもしれないので
+            # 関節角度を前後で合わせることを推奨
+            self.robot.move_joint(current_joint)
         # エリア機能を有効にする
         self.robot.SetAreaEnabled(0, True)
         self.hand_name = name
