@@ -48,11 +48,11 @@ filter_kind: Literal[
     "control_and_target_diff",
 ] = "original"
 speed_limits = np.array([240, 200, 240, 300, 300, 475])
-speed_limit_ratio = 0.2
+speed_limit_ratio = 0.35
 # NOTE: 加速度制限。スマートTPの最大加速度設定は単位が[rev/s^2]だが、[deg/s^2]とみなして、
 # その値をここで設定すると、エラーが起きにくくなる (観測範囲でエラーがなくなった)
 accel_limits = np.array([4040, 4033.33, 4040, 5050, 5050, 4860])
-accel_limit_ratio = 0.2
+accel_limit_ratio = 0.35
 stopped_velocity_eps = 1e-4
 servo_mode = 0x202
 use_interp = True
@@ -218,11 +218,19 @@ class Cobotta_Pro_CON:
             target = target_th
 
             # 目標値が状態値から大きく離れた場合は制御を停止する
+<<<<<<< Updated upstream
             # if (np.abs(target - state) > 
             #     target_state_abs_joint_diff_limit).any():
             #     stop = 1
             #     code_stop = 1
             #     message_stop = "目標値が状態値から離れすぎています"
+=======
+#            if (np.abs(target - state) > 
+#                target_state_abs_joint_diff_limit).any():
+#                stop = 1
+#                code_stop = 1
+#                message_stop = "目標値が状態値から離れすぎています"
+>>>>>>> Stashed changes
 
             now = time.time()
             if self.last == 0:
@@ -503,7 +511,7 @@ class Cobotta_Pro_CON:
             # 変えることもできる (どういう仕組みを作るかは別)
             self.hand.grip(waiting=False)
         elif self.hand_name == "onrobot_vgc10":
-            self.hand.grip(waiting=False)
+            self.hand.grip(waiting=False, vacuumA = 40,  vacuumB =40)
 
     def send_release(self):
         if self.tool_id == -1:

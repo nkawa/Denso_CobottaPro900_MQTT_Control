@@ -196,7 +196,7 @@ class Cobotta_Pro_MON:
             actual_joint_js["forces"] = forces
 
             tool_id = self.tool_id
-            actual_joint_js["tool_id"] = tool_id
+            actual_joint_js["tool_id"] = int(tool_id)
             # ツール依存の部分はまとめるべき
             if tool_id == -1:
                 width = None
