@@ -48,11 +48,11 @@ filter_kind: Literal[
     "control_and_target_diff",
 ] = "original"
 speed_limits = np.array([240, 200, 240, 300, 300, 475])
-speed_limit_ratio = 0.25
+speed_limit_ratio = 0.2
 # NOTE: 加速度制限。スマートTPの最大加速度設定は単位が[rev/s^2]だが、[deg/s^2]とみなして、
 # その値をここで設定すると、エラーが起きにくくなる (観測範囲でエラーがなくなった)
 accel_limits = np.array([4040, 4033.33, 4040, 5050, 5050, 4860])
-accel_limit_ratio = 0.25
+accel_limit_ratio = 0.2
 stopped_velocity_eps = 1e-4
 servo_mode = 0x202
 use_interp = True
@@ -479,7 +479,7 @@ class Cobotta_Pro_CON:
 
     def enable(self) -> bool:
         self.robot.enable_robot()
-        self.robot.SetAreaEnabled(0, False)
+        # self.robot.SetAreaEnabled(0, False)
 
     def disable(self) -> bool:
         self.robot.disable()
@@ -621,7 +621,7 @@ class Cobotta_Pro_CON:
         self.robot.move_pose(up_pose, fig=-3)
         self.robot.move_pose(tool_base, fig=-3)
         # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
-        # self.robot.SetAreaEnabled(0, False)
+        self.robot.SetAreaEnabled(0, False)
         # アームの先端の位置で制御する（現在のツールに依存しない）
         self.robot.set_tool(0)
 
@@ -743,7 +743,7 @@ class Cobotta_Pro_CON:
         else:
             self.robot.move_pose(up_pose, fig=-3)
         # エリア機能を有効にする
-        # self.robot.SetAreaEnabled(0, True)
+        self.robot.SetAreaEnabled(0, True)
         self.hand_name = name
         self.hand = hand
         self.tool_id = next_tool_id
