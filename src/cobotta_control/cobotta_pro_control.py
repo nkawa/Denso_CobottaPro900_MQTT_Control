@@ -740,8 +740,8 @@ class Cobotta_Pro_CON:
             # 箱の手前に移動
             self.robot.move_pose(
                 [-229.66, -613.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
-
-        self.robot.move_pose(up_pose, fig=-3)
+        else:
+            self.robot.move_pose(up_pose, fig=-3)
         # エリア機能を有効にする
         # self.robot.SetAreaEnabled(0, True)
         self.hand_name = name
