@@ -261,6 +261,11 @@ class Cobotta_Pro_CON:
                     _filter = SMAFilter(n_windows=n_windows)
                     _filter.reset(state)
 
+                # 速度制限をフィルタの手前にも入れてみる
+                if True:
+                    assert filter_kind == "original"
+                    self.last_target_delayed_velocity = np.zeros(6)
+
                 self.last_control_velocity = np.zeros(6)
                 continue
 
@@ -279,6 +284,40 @@ class Cobotta_Pro_CON:
                 target_delayed = di.read(now, target)
             else:
                 target_delayed = target
+
+            # 速度制限をフィルタの手前にも入れてみる
+            if True:
+                assert filter_kind == "original"
+                target_diff = target_delayed - self.last_target_delayed
+                # 速度制限
+                dt = now - self.last
+                v = target_diff / dt
+                ratio = np.abs(v) / (speed_limit_ratio * speed_limits)
+                max_ratio = np.max(ratio)
+                if max_ratio > 1:
+                    v /= max_ratio
+                target_diff_speed_limited = v * dt
+
+                # 加速度制限
+                a = (v - self.last_target_delayed_velocity) / dt
+                accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
+                accel_max_ratio = np.max(accel_ratio)
+                if accel_max_ratio > 1:
+                    a /= accel_max_ratio
+                v = self.last_target_delayed_velocity + a * dt
+                target_diff_speed_limited = v * dt
+
+                # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
+                # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
+                # にしか静止させてはいけない
+                if np.all(target_diff_speed_limited / dt < stopped_velocity_eps):
+                    target_diff_speed_limited = np.zeros_like(
+                        target_diff_speed_limited)
+                    v = target_diff_speed_limited / dt
+
+                self.last_target_delayed_velocity = v
+                target_delayed = self.last_target_delayed + target_diff_speed_limited
+
             self.last_target_delayed = target_delayed
 
             # 平滑化
