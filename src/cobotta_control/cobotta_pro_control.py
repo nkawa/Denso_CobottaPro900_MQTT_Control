@@ -48,11 +48,11 @@ filter_kind: Literal[
     "control_and_target_diff",
 ] = "original"
 speed_limits = np.array([240, 200, 240, 300, 300, 475])
-speed_limit_ratio = 0.5
+speed_limit_ratio = 0.2
 # NOTE: 加速度制限。スマートTPの最大加速度設定は単位が[rev/s^2]だが、[deg/s^2]とみなして、
 # その値をここで設定すると、エラーが起きにくくなる (観測範囲でエラーがなくなった)
 accel_limits = np.array([4040, 4033.33, 4040, 5050, 5050, 4860])
-accel_limit_ratio = 0.5
+accel_limit_ratio = 0.2
 stopped_velocity_eps = 1e-4
 servo_mode = 0x202
 use_interp = True
@@ -218,11 +218,11 @@ class Cobotta_Pro_CON:
             target = target_th
 
             # 目標値が状態値から大きく離れた場合は制御を停止する
-            if (np.abs(target - state) > 
-                target_state_abs_joint_diff_limit).any():
-                stop = 1
-                code_stop = 1
-                message_stop = "目標値が状態値から離れすぎています"
+            # if (np.abs(target - state) > 
+            #     target_state_abs_joint_diff_limit).any():
+            #     stop = 1
+            #     code_stop = 1
+            #     message_stop = "目標値が状態値から離れすぎています"
 
             now = time.time()
             if self.last == 0:
@@ -261,6 +261,11 @@ class Cobotta_Pro_CON:
                     _filter = SMAFilter(n_windows=n_windows)
                     _filter.reset(state)
 
+                # 速度制限をフィルタの手前にも入れてみる
+                if True:
+                    assert filter_kind == "original"
+                    self.last_target_delayed_velocity = np.zeros(6)
+
                 self.last_control_velocity = np.zeros(6)
                 continue
 
@@ -279,6 +284,40 @@ class Cobotta_Pro_CON:
                 target_delayed = di.read(now, target)
             else:
                 target_delayed = target
+
+            # 速度制限をフィルタの手前にも入れてみる
+            if True:
+                assert filter_kind == "original"
+                target_diff = target_delayed - self.last_target_delayed
+                # 速度制限
+                dt = now - self.last
+                v = target_diff / dt
+                ratio = np.abs(v) / (speed_limit_ratio * speed_limits)
+                max_ratio = np.max(ratio)
+                if max_ratio > 1:
+                    v /= max_ratio
+                target_diff_speed_limited = v * dt
+
+                # 加速度制限
+                a = (v - self.last_target_delayed_velocity) / dt
+                accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
+                accel_max_ratio = np.max(accel_ratio)
+                if accel_max_ratio > 1:
+                    a /= accel_max_ratio
+                v = self.last_target_delayed_velocity + a * dt
+                target_diff_speed_limited = v * dt
+
+                # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
+                # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
+                # にしか静止させてはいけない
+                if np.all(target_diff_speed_limited / dt < stopped_velocity_eps):
+                    target_diff_speed_limited = np.zeros_like(
+                        target_diff_speed_limited)
+                    v = target_diff_speed_limited / dt
+
+                self.last_target_delayed_velocity = v
+                target_delayed = self.last_target_delayed + target_diff_speed_limited
+
             self.last_target_delayed = target_delayed
 
             # 平滑化
@@ -479,6 +518,7 @@ class Cobotta_Pro_CON:
 
     def enable(self) -> bool:
         self.robot.enable_robot()
+        # self.robot.SetAreaEnabled(0, False)
 
     def disable(self) -> bool:
         self.robot.disable()
@@ -732,7 +772,15 @@ class Cobotta_Pro_CON:
                 next_tool_info["id_in_robot"], next_tool_info["tool_def"])
         self.robot.set_tool(next_tool_info["id_in_robot"])
         self.robot.move_pose(tool_base, fig=-3)
-        self.robot.move_pose(up_pose, fig=-3)
+        if next_tool_info["id"] == 4:
+            # tool_baseから箱の手前まで直接行くと台にぶつかりそうなので少し手前に移動
+            self.robot.move_pose(
+                [-229.66, -413.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
+            # 箱の手前に移動
+            self.robot.move_pose(
+                [-229.66, -613.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
+        else:
+            self.robot.move_pose(up_pose, fig=-3)
         # エリア機能を有効にする
         self.robot.SetAreaEnabled(0, True)
         self.hand_name = name
