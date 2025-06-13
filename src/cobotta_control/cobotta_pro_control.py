@@ -733,6 +733,14 @@ class Cobotta_Pro_CON:
                 next_tool_info["id_in_robot"], next_tool_info["tool_def"])
         self.robot.set_tool(next_tool_info["id_in_robot"])
         self.robot.move_pose(tool_base, fig=-3)
+        if next_tool_info["id"] == 4:
+            # tool_baseから箱の手前まで直接行くと台にぶつかりそうなので少し手前に移動
+            self.robot.move_pose(
+                [-229.66, -413.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
+            # 箱の手前に移動
+            self.robot.move_pose(
+                [-229.66, -613.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
+
         self.robot.move_pose(up_pose, fig=-3)
         # エリア機能を有効にする
         # self.robot.SetAreaEnabled(0, True)
