@@ -218,19 +218,11 @@ class Cobotta_Pro_CON:
             target = target_th
 
             # 目標値が状態値から大きく離れた場合は制御を停止する
-<<<<<<< Updated upstream
-            # if (np.abs(target - state) > 
-            #     target_state_abs_joint_diff_limit).any():
-            #     stop = 1
-            #     code_stop = 1
-            #     message_stop = "目標値が状態値から離れすぎています"
-=======
 #            if (np.abs(target - state) > 
 #                target_state_abs_joint_diff_limit).any():
 #                stop = 1
 #                code_stop = 1
 #                message_stop = "目標値が状態値から離れすぎています"
->>>>>>> Stashed changes
 
             now = time.time()
             if self.last == 0:
