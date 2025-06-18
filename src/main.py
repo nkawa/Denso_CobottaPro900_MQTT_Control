@@ -88,7 +88,7 @@ class MQTTWin:
  
         self.root = root
         self.root.title("MQTT-CobottaPro900 Controller")
-        self.root.geometry("700x900")
+        self.root.geometry("1100x980")
 
         for col in range(4):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
@@ -297,7 +297,7 @@ class MQTTWin:
                 row=13+3*i, column=0, padx=2, pady=2,
                 sticky="ew", columnspan=4, rowspan=2)
             self.topic_monitors[topic_type] = scrolledtext.ScrolledText(
-                frame_topic, height=2)
+                frame_topic, height=3)
             self.topic_monitors[topic_type].pack(
                 side="left", padx=2, expand=True, fill="both")
 
