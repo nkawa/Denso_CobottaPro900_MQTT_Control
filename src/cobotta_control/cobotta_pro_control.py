@@ -171,7 +171,7 @@ class Cobotta_Pro_CON:
                 # print("[CNT]Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
-                    return True, message_stop
+                    return code_stop, message_stop
                 continue
 
             # 目標値を取得しているかを確認
@@ -180,7 +180,7 @@ class Cobotta_Pro_CON:
                 # print("[CNT]Wait for target..")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
-                    return True, message_stop
+                    return code_stop, message_stop
                 continue
 
             # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
@@ -229,7 +229,7 @@ class Cobotta_Pro_CON:
                 print("[CNT]Starting to Control!",self.pose)
                 # 制御する前に終了する場合即時終了可能
                 if stop:
-                    return True, message_stop
+                    return code_stop, message_stop
                 self.last = now
 
                 # 目標値を遅延を許して極力線形補間するためのセットアップ
