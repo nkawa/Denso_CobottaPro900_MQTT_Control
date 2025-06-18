@@ -156,6 +156,8 @@ class Cobotta_Pro_CON:
         code_stop = 0
         message_stop = "Interrupted"
         while True:
+            now = time.time()
+
             # NOTE: テスト用データなど、時間が経つにつれて
             # targetの値がstateの値によらずにどんどん
             # 変化していく場合は、以下で待ちすぎると
@@ -225,7 +227,6 @@ class Cobotta_Pro_CON:
 #                code_stop = 1
 #                message_stop = "目標値が状態値から離れすぎています"
 
-            now = time.time()
             if self.last == 0:
                 self.logger.info("Starting to Control!")
                 # 制御する前に終了する場合即時終了可能
@@ -474,17 +475,17 @@ class Cobotta_Pro_CON:
                     th2.start()
                     self.pose[13] = 0
 
-                if servo_mode == 0x102:
-                    t_elapsed = time.time() - now
-                    t_wait = t_intv - t_elapsed
-                    if t_wait > 0:
-                        time.sleep(t_wait)
-
-            else:
-                t_elapsed = time.time() - now
-                t_wait = t_intv - t_elapsed
-                if t_wait > 0:
+            t_elapsed = time.time() - now
+            t_wait = t_intv - t_elapsed
+            if t_wait > 0:
+                if (move_robot and servo_mode == 0x102) or (not move_robot):
                     time.sleep(t_wait)
+            
+            t_elapsed = time.time() - now
+            if t_elapsed > t_intv * 2:
+                self.logger.warning(
+                    f"Control loop is 2 times as slow as expected: "
+                    f"{t_elapsed} seconds")
 
             if stop:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
