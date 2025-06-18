@@ -1,8 +1,11 @@
-from html import parser
+import datetime
+import logging
 import json
+import logging.handlers
 import tkinter as tk
 import multiprocessing
 from tkinter import scrolledtext
+from typing import Optional
 
 from cobotta_control.cobotta_pro_mqtt_control import ProcessManager
 from cobotta_control.tools import tool_infos
@@ -47,10 +50,40 @@ class ToolChangePopup(tk.Toplevel):
         self.destroy()
 
 
+class GUILoggingHandler(logging.Handler):
+    def __init__(self, gui: "MQTTWin") -> None:
+        super().__init__()
+        self.gui = gui
+    
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            # GUIはメインスレッドで更新する
+            self.gui.root.after(0, self.gui.update_log, msg)
+        except Exception:
+            self.handleError(record)
+
+
+class MicrosecondFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.datetime.fromtimestamp(record.created)
+        if datefmt:
+            s = dt.strftime(datefmt)
+            # %f をマイクロ秒で置換
+            s = s.replace('%f', f"{dt.microsecond:06d}")
+            return s
+        else:
+            return super().formatTime(record, datefmt)
+
+
 class MQTTWin:
     def __init__(self, root):
         self.pm = ProcessManager()
-        print("Starting Process!")
+        log_queue = self.pm.log_queue
+        self.setup_logging(log_queue=log_queue)
+        self.setup_logger(log_queue=log_queue)
+        self.logger.info("Starting Process!")
+ 
         self.pm.startDebug()
  
         self.root = root
@@ -268,13 +301,63 @@ class MQTTWin:
             self.topic_monitors[topic_type].pack(
                 side="left", padx=2, expand=True, fill="both")
 
+        frame_sm = tk.Frame(self.root)
+        frame_sm.grid(
+            row=24, column=0, padx=2, pady=10, sticky="ew", columnspan=4)
+        label_sm = tk.Label(frame_sm, text="Shared Memory (rounded)")
+        label_sm.pack(side="left", padx=2)
+        self.string_var_sm = tk.StringVar()
+        text_box_sm = tk.Label(
+            frame_sm,
+            textvariable=self.string_var_sm,
+            bg="white",
+            relief="solid",
+            bd=1,
+            anchor="w",
+        )
+        text_box_sm.pack(side="left", padx=2, expand=True, fill="x")
+
         tk.Label(self.root, text="Log Monitor").grid(
-            row=24, column=0, padx=2, pady=2, sticky="w", columnspan=4)
+            row=25, column=0, padx=2, pady=2, sticky="w", columnspan=4)
         self.log_monitor = scrolledtext.ScrolledText(
             self.root, height=10)
         self.log_monitor.grid(
-            row=25,column=0,padx=2,pady=2,columnspan=4, sticky="nsew")
+            row=26,column=0,padx=2,pady=2,columnspan=4, sticky="nsew")
         self.update_monitor()
+
+    def setup_logging(
+        self, log_queue: Optional[multiprocessing.Queue] = None,
+    ) -> None:
+        """複数プロセスからのログを集約する方法を設定する"""
+        t_start_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        handlers = [
+            logging.FileHandler(t_start_str + "_log.txt"),
+            logging.StreamHandler(),
+        ]
+        if log_queue is not None:
+            handlers.append(GUILoggingHandler(self))
+        formatter = MicrosecondFormatter(
+            "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S.%f",
+        )
+        for handler in handlers:
+            handler.setFormatter(formatter)
+        listener = logging.handlers.QueueListener(log_queue, *handlers)
+        # listener.startからroot.mainloopまでのわずかな間は、
+        # GUIの更新がないが、root.mainloopが始まると溜まっていたログも表示される
+        listener.start()
+
+    def setup_logger(
+        self, log_queue: Optional[multiprocessing.Queue] = None,
+    ) -> None:
+        """GUIプロセスからのログの設定"""
+        self.logger = logging.getLogger("GUI")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
 
     def ConnectRobot(self):
         if self.pm.state_control and self.pm.state_monitor:
@@ -364,17 +447,13 @@ class MQTTWin:
     def update_monitor(self):
         # モニタープロセスからの情報
         log = self.pm.get_current_monitor_log()
-        all_log_str = ""
         if log:
             # ロボットの姿勢情報が流れるトピック
             topic_type = log.pop("topic_type")
             topic = log.pop("topic")
             log_str = json.dumps(log, ensure_ascii=False)
             self.string_var_topics[topic_type].set(topic)
-            self.topic_monitors[topic_type].delete("1.0", tk.END)
-            self.topic_monitors[topic_type].insert(tk.END, log_str + "\n")
-            self.log_monitor.delete("1.0", tk.END)
-            self.log_monitor.insert(tk.END, log_str + "\n")  # ログを表示
+            self.update_topic(log_str, self.topic_monitors[topic_type])
 
             # 各情報をパース
             color = "lime" if log.get("enabled") else "gray"
@@ -397,8 +476,6 @@ class MQTTWin:
             else:
                 self.string_var_states["Tool ID"].set("")
 
-            all_log_str += log_str + "\n"
-
         # MQTT制御プロセスからの情報
         log = self.pm.get_current_mqtt_control_log()
         if log:
@@ -406,8 +483,7 @@ class MQTTWin:
             topic = log.pop("topic")
             log_str = json.dumps(log, ensure_ascii=False)
             self.string_var_topics[topic_type].set(topic)
-            self.topic_monitors[topic_type].delete("1.0", tk.END)
-            self.topic_monitors[topic_type].insert(tk.END, log_str + "\n")
+            self.update_topic(log_str, self.topic_monitors[topic_type])
 
             joints = log.get("joints")
             if joints is not None:
@@ -421,27 +497,39 @@ class MQTTWin:
                 self.string_var_targets["grip"].set(f"{grip}")
             else:
                 self.string_var_targets["grip"].set("")
-
-            all_log_str += log_str + "\n"
-
-        trim_logs = False
-        # 古いログを全て削除
-        if not trim_logs:
-            self.log_monitor.delete("1.0", tk.END)
-        self.log_monitor.insert(tk.END, all_log_str + "\n")  # ログを表示
-        if trim_logs:
-            # 古いログを一部削除
-            self.trim_logs(self.log_monitor, max_lines=100)
-            self.log_monitor.see(tk.END)  # 最新ログにスクロール
+        
+        # 共有メモリの情報
+        sm = self.pm.ar.copy()
+        sm_str = ",".join(str(int(round(x))) for x in sm)
+        self.string_var_sm.set(sm_str)
         self.root.after(100, self.update_monitor)  # 100ms間隔で表示を更新
 
-    def trim_logs(self, log, max_lines: int) -> None:
-        """最大行数を超えたログを削除。"""
-        current_lines = int(log.index('end-1c').split('.')[0])  # 現在の行数を取得
-        if current_lines > max_lines:
-            excess_lines = current_lines - max_lines
-            self.log_area.delete("1.0", f"{excess_lines}.0")  # 超過分の行を削除
+    def update_topic(self, msg: str, box: scrolledtext.ScrolledText) -> None:
+        """トピックの内容を表示する"""
+        box.delete("1.0", tk.END)
+        box.insert(tk.END, msg + "\n")  # ログを表示
 
+    def update_log(self, msg: str) -> None:
+        """ログを表示する"""
+        box = self.log_monitor
+
+        ## 最後の行を表示しているときだけ自動スクロールする
+        # 挿入前にスクロールバーが一番下かどうかを判定
+        # yview()は(最初に表示されている行, 最後に表示されている行)を0.0～1.0で返す
+        at_bottom = False
+        if box.yview()[1] >= 0.999:  # 浮動小数点の誤差を考慮
+            at_bottom = True
+        box.insert(tk.END, msg + "\n")  # ログを表示
+        # 挿入後、元々一番下にいた場合のみ自動スクロール
+        if at_bottom:
+            box.see(tk.END)
+        
+        # 行数が多すぎる場合は古い行を一部削除してメモリを節約
+        current_lines = int(box.index('end-1c').split('.')[0])
+        if current_lines > 1000:
+            excess_lines = current_lines - 1000
+            box.delete("1.0", f"{excess_lines}.0")
+    
 
 if __name__ == '__main__':
     print("Freeze Support for Windows")

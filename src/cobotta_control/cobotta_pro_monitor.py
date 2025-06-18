@@ -1,5 +1,6 @@
 # Cobotta Pro の状態をモニタリングする
 
+import logging
 from typing import Any, Dict, List
 from paho.mqtt import client as mqtt
 from denso_robot import DensoRobot
@@ -75,16 +76,16 @@ class Cobotta_Pro_MON:
             try:
                 os.sched_setscheduler(0, os.SCHED_FIFO, param)
             except OSError:
-                print("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
+                self.logger.warning("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
             else:
-                print("Process real-time priority set to: %u" % rt_app_priority)
+                self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
     def on_connect(self,client, userdata, flag, rc,proc):
-        print("Connected with result code " + str(rc))  # 接続できた旨表示
+        self.logger.info("Connected with result code " + str(rc))  # 接続できた旨表示
 
     def on_disconnect(self,client, userdata, rc):
         if  rc != 0:
-            print("Unexpected disconnection.")
+            self.logger.warning("Unexpected disconnection.")
 
     def connect_mqtt(self):
         self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -286,7 +287,17 @@ class Cobotta_Pro_MON:
             if t_wait > 0:
                 time.sleep(t_wait)
 
-    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock):
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("MON")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
+        self.setup_logger(log_queue)
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
@@ -299,7 +310,7 @@ class Cobotta_Pro_MON:
         try:
             self.monitor_start()
         except KeyboardInterrupt:
-            print("Stop! Cobotta Pro monitor")
+            self.logger.info("Stop! Cobotta Pro monitor")
             self.robot.disable()
             self.robot.stop()
 

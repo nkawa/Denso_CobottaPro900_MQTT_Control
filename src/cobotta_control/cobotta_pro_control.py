@@ -1,5 +1,6 @@
 # Cobotta Proを制御する
 
+import logging
 from typing import Any, Dict, List, Literal, Tuple
 import datetime
 import time
@@ -142,13 +143,13 @@ class Cobotta_Pro_CON:
             try:
                 os.sched_setscheduler(0, os.SCHED_FIFO, param)
             except OSError:
-                print("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
+                self.logger.warning("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
             else:
-                print("Process real-time priority set to: %u" % rt_app_priority)
+                self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
     def control_loop(self) -> Tuple[bool, str]:
         self.last = 0
-        print("[CNT]Start Main Loop")
+        self.logger.info("Start Main Loop")
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
@@ -168,7 +169,7 @@ class Cobotta_Pro_CON:
             # 現在情報を取得しているかを確認
             if self.pose[19] != 1:
                 time.sleep(t_intv)
-                # print("[CNT]Wait for monitoring..")
+                # self.logger.info("Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return code_stop, message_stop
@@ -177,7 +178,7 @@ class Cobotta_Pro_CON:
             # 目標値を取得しているかを確認
             if self.pose[20] != 1:
                 time.sleep(t_intv)
-                # print("[CNT]Wait for target..")
+                # self.logger.info("Wait for target..")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return code_stop, message_stop
@@ -210,11 +211,11 @@ class Cobotta_Pro_CON:
             target_th = np.maximum(target, -abs_joint_soft_limit)
             if (target == target_th).any():
                 pass
-                # print("[CNT]: Warning: target reached minimum threshold")
+                # self.logger.warning("target reached minimum threshold")
             target_th = np.minimum(target_th, abs_joint_soft_limit)
             if (target == target_th).any():
                 pass
-                # print("[CNT]: Warning: target reached maximum threshold")
+                # self.logger.warning("target reached maximum threshold")
             target = target_th
 
             # 目標値が状態値から大きく離れた場合は制御を停止する
@@ -226,7 +227,7 @@ class Cobotta_Pro_CON:
 
             now = time.time()
             if self.last == 0:
-                print("[CNT]Starting to Control!",self.pose)
+                self.logger.info("Starting to Control!")
                 # 制御する前に終了する場合即時終了可能
                 if stop:
                     return code_stop, message_stop
@@ -560,8 +561,8 @@ class Cobotta_Pro_CON:
         # モーターがOFFなどの理由でスレーブモードに入れない場合
         # self.pose[15]を0に戻す
         except ORiNException as e:
-            print("[CNT]: Error entering servo mode")
-            print(f"[CNT]: {self.robot.format_error(e)}")
+            self.logger.error("Error entering servo mode")
+            self.logger.error(f"{self.robot.format_error(e)}")
             self.leave_servo_mode()
             self.pose[15] = 0
             self.pose[16] = 0
@@ -571,11 +572,11 @@ class Cobotta_Pro_CON:
             code_stop, message_stop = self.control_loop()
             self.leave_servo_mode()
             if code_stop == 0:
-                print("[CNT]: User required stop and successfully done")
+                self.logger.info("User required stop and successfully done")
                 break
             else:
                 if code_stop == 1:
-                    print(f"[CNT]: {message_stop}")
+                    self.logger.warning(f"{message_stop}")
                     # FIXME: 現状は現在地と目標値の乖離による場合は、
                     # GUIのランプがOFFになる以外に、実験者が耳でも気づくように、
                     # モーターの電源を切ることにする
@@ -584,11 +585,11 @@ class Cobotta_Pro_CON:
                 # 自動復帰の前にエラーを確実にモニタするため待機
                 time.sleep(1)
                 errors = self.robot.get_cur_error_info_all()
-                print(f"[CNT]: Error in control loop: {errors}")
+                self.logger.error(f"Error in control loop: {errors}")
                 # ユーザーが停止させようとしてきちんと停止しなかった場合
                 # エラーによらず通常モードに戻る。
                 if self.pose[16] == 1:
-                    print("[CNT]: User required stop and not successfully done")
+                    self.logger.warning("User required stop and not successfully done")
                     break
                 # 自動復帰可能エラー
                 elif self.robot.are_all_errors_stateless(errors):
@@ -599,19 +600,19 @@ class Cobotta_Pro_CON:
                         # 手動で操作が可能な状態に戻す
                         ret = self.robot.recover_automatic_enable()
                         if not ret:
-                            print("[CNT]: Cannot automatically recover enable")
+                            self.logger.warning("Cannot automatically recover enable")
                             break
                         self.enter_servo_mode()
                         continue
                     # NOTE: 検証用。エラー処理が確立すれば不要と思われる
                     except ORiNException as e:
-                        print("[CNT]: Error during automatic recover")
-                        print(f"[CNT]: {self.robot.format_error(e)}")
+                        self.logger.error("Error during automatic recover")
+                        self.logger.error(f"{self.robot.format_error(e)}")
                         self.leave_servo_mode()
                         break
                 # 自動復帰不可能エラー
                 else:
-                    print("[CNT]: Error is not automatically recoverable")
+                    self.logger.error("Error is not automatically recoverable")
                     break
         self.pose[15] = 0
         self.pose[16] = 0
@@ -626,8 +627,8 @@ class Cobotta_Pro_CON:
                     self.pose[18] = 0
                     self.tool_change(next_tool_id)
                 except ORiNException as e:
-                    print("[CNT]: Error during tool change")
-                    print(f"[CNT]: {self.robot.format_error(e)}")
+                    self.logger.error("Error during tool change")
+                    self.logger.error(f"{self.robot.format_error(e)}")
                 finally:
                     self.pose[18] = 0
                     self.pose[17] = 0
@@ -646,7 +647,7 @@ class Cobotta_Pro_CON:
                 break
             time.sleep(0.008)
         if next_tool_id == self.tool_id:
-            print("Selected tool is current tool.")
+            self.logger.info("Selected tool is current tool.")
             self.pose[18] = 0
             return
         tool_info = self.get_tool_info(tool_infos, self.tool_id)
@@ -789,7 +790,17 @@ class Cobotta_Pro_CON:
         self.pose[18] = 0
         return
 
-    def run_proc(self, control_pipe, slave_mode_lock):
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("CTRL")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+    def run_proc(self, control_pipe, slave_mode_lock, log_queue):
+        self.setup_logger(log_queue)
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.slave_mode_lock = slave_mode_lock
@@ -821,12 +832,12 @@ class Cobotta_Pro_CON:
                                 self.pose[18] = 0
                                 self.tool_change(next_tool_id)
                             except ORiNException as e:
-                                print("[CNT]: Error during tool change")
-                                print(f"[CNT]: {self.robot.format_error(e)}")
+                                self.logger.error("[CNT]: Error during tool change")
+                                self.logger.error(f"[CNT]: {self.robot.format_error(e)}")
                             finally:
                                 self.pose[18] = 0
                                 self.pose[17] = 0
                                 break
             except Exception as e:
                 self.leave_servo_mode()
-                print(f"[CNT]: {self.robot.format_error(e)}")
+                self.logger.error(f"[CNT]: {self.robot.format_error(e)}")

@@ -1,6 +1,7 @@
 # Cobotta ProをMQTTで制御する
 
 import json
+import logging
 from paho.mqtt import client as mqtt
 import multiprocessing as mp
 import multiprocessing.shared_memory
@@ -60,17 +61,18 @@ class Cobotta_Pro_MQTT:
                 info["topic"] = MQTT_MANAGE_TOPIC + "/register"
                 self.mqtt_control_dict.clear()
                 self.mqtt_control_dict.update(info)
-            print("publish to: " + MQTT_MANAGE_TOPIC + "/register")
+            self.logger.info("publish to: " + MQTT_MANAGE_TOPIC + "/register")
             self.client.subscribe(MQTT_MANAGE_RCV_TOPIC)
-            print("subscribe to: " + MQTT_MANAGE_RCV_TOPIC)
+            self.logger.info("subscribe to: " + MQTT_MANAGE_RCV_TOPIC)
         else:
-            print("MQTT:Connected with result code " + str(rc), "subscribe ctrl", MQTT_CTRL_TOPIC)
+            self.logger.info("MQTT:Connected with result code " + str(rc),
+                             "subscribe ctrl", MQTT_CTRL_TOPIC)
             self.mqtt_ctrl_topic = MQTT_CTRL_TOPIC
             self.client.subscribe(self.mqtt_ctrl_topic)
 
     def on_disconnect(self,client, userdata, rc):
         if  rc != 0:
-            print("Unexpected disconnection.")
+            self.logger.warning("Unexpected disconnection.")
 
     def on_message(self,client, userdata, msg):
         if msg.topic == self.mqtt_ctrl_topic:
@@ -121,21 +123,21 @@ class Cobotta_Pro_MQTT:
             if MQTT_MODE == "metawork":
                 js = json.loads(msg.payload)
                 goggles_id = js["devId"]
-                print(f"Connected to goggles: {goggles_id}")
+                self.logger.info(f"Connected to goggles: {goggles_id}")
                 mqtt_ctrl_topic = MQTT_CTRL_TOPIC + "/" + goggles_id
                 if mqtt_ctrl_topic != self.mqtt_ctrl_topic:
                     if self.mqtt_ctrl_topic is not None:
                         self.client.unsubscribe(self.mqtt_ctrl_topic)    
                     self.mqtt_ctrl_topic = mqtt_ctrl_topic
                 self.client.subscribe(self.mqtt_ctrl_topic)
-                print("subscribe to: " + self.mqtt_ctrl_topic)
+                self.logger.info("subscribe to: " + self.mqtt_ctrl_topic)
                 with self.mqtt_control_lock:
                     js["topic_type"] = "dev"
                     js["topic"] = msg.topic
                     self.mqtt_control_dict.clear()
                     self.mqtt_control_dict.update(js)
         else:
-            print("not subscribe msg", msg.topic)
+            self.logger.warning("not subscribe msg" + msg.topic)
 
     def connect_mqtt(self):
         self.client = mqtt.Client()  
@@ -146,7 +148,17 @@ class Cobotta_Pro_MQTT:
         self.client.connect(MQTT_SERVER, 1883, 60)
         self.client.loop_forever()   # 通信処理開始
 
-    def run_proc(self, mqtt_control_dict, mqtt_control_lock):
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("MQTT")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+    def run_proc(self, mqtt_control_dict, mqtt_control_lock, log_queue):
+        self.setup_logger(log_queue)
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.mqtt_control_dict = mqtt_control_dict
@@ -155,17 +167,28 @@ class Cobotta_Pro_MQTT:
 
 
 class Cobotta_Pro_Debug:
-    def run_proc(self, monitor_dict):
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("DBG")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+    def run_proc(self, monitor_dict, log_queue):
+        self.setup_logger(log_queue)
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         while True:
             diff = self.ar[6:12]-self.ar[0:6]
             diff *=1000
             diff = diff.astype('int')
-            print(self.ar[0:6],self.ar[6:12])
-            print(diff)
-            print(self.ar, flush=True)
-            print(monitor_dict)
+            self.logger.debug(f"State: {self.ar[0:6]}, Target: {self.ar[6:12]}")
+            self.logger.debug(f"Diff: {diff}")
+            sm = ",".join(str(int(round(x))) for x in self.ar)
+            self.logger.debug(f"SharedMemory (rounded): {sm}")
+            self.logger.debug(f"Monitor: {monitor_dict}")
             time.sleep(2)
 
 
@@ -200,12 +223,15 @@ class ProcessManager:
         self.state_recv_mqtt = False
         self.state_monitor = False
         self.state_control = False
+        self.log_queue = multiprocessing.Queue()
 
     def startRecvMQTT(self):
         self.recv = Cobotta_Pro_MQTT()
         self.recvP = Process(
             target=self.recv.run_proc,
-            args=(self.mqtt_control_dict, self.mqtt_control_lock),
+            args=(self.mqtt_control_dict,
+                  self.mqtt_control_lock,
+                  self.log_queue),
             name="MQTT-recv")
         self.recvP.start()
         self.state_recv_mqtt = True
@@ -214,7 +240,10 @@ class ProcessManager:
         self.mon = Cobotta_Pro_MON()
         self.monP = Process(
             target=self.mon.run_proc,
-            args=(self.monitor_dict, self.monitor_lock, self.slave_mode_lock),
+            args=(self.monitor_dict,
+                  self.monitor_lock,
+                  self.slave_mode_lock,
+                  self.log_queue),
             name="Cobotta-Pro-monitor")
         self.monP.start()
         self.state_monitor = True
@@ -223,7 +252,7 @@ class ProcessManager:
         self.ctrl = Cobotta_Pro_CON()
         self.ctrlP = Process(
             target=self.ctrl.run_proc,
-            args=(self.control_pipe, self.slave_mode_lock),
+            args=(self.control_pipe, self.slave_mode_lock, self.log_queue),
             name="Cobotta-Pro-control")
         self.ctrlP.start()
         self.state_control = True
@@ -232,7 +261,7 @@ class ProcessManager:
         self.debug = Cobotta_Pro_Debug()
         self.debugP = Process(
             target=self.debug.run_proc,
-            args=(self.monitor_dict,),
+            args=(self.monitor_dict, self.log_queue),
             name="Cobotta-Pro-debug")
         self.debugP.start()
 
