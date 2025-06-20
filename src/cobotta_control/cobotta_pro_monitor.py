@@ -155,6 +155,15 @@ class Cobotta_Pro_MON:
                 return
             time.sleep(0.008)
 
+    def tool_change_if_needed(self) -> None:
+        try:
+            next_tool_id = self.pose[17].copy()
+            if next_tool_id != 0:
+                self.tool_change(next_tool_id)
+        except Exception as e:
+            self.logger.error("Error during tool change")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
@@ -166,9 +175,7 @@ class Cobotta_Pro_MON:
                 last_error_monitored = now
 
             # ツールチェンジ
-            next_tool_id = self.pose[17].copy()
-            if next_tool_id != 0:
-                self.tool_change(next_tool_id)
+            self.tool_change_if_needed()
 
             # TCP姿勢
             actual_tcp_pose = self.robot.get_current_pose()
@@ -320,6 +327,9 @@ class Cobotta_Pro_MON:
             self.logger.info("Stop! Cobotta Pro monitor")
             self.robot.disable()
             self.robot.stop()
+        except Exception as e:
+            self.logger.error("Error in monitor")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
 if __name__ == '__main__':
     cp = Cobotta_Pro_MON()
