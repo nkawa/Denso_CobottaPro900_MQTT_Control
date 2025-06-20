@@ -532,7 +532,7 @@ class MQTTWin:
     
 
 if __name__ == '__main__':
-    print("Freeze Support for Windows")
+    # Freeze Support for Windows
     multiprocessing.freeze_support()
 
 
