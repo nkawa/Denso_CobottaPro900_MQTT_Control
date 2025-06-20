@@ -44,7 +44,7 @@ class Cobotta_Pro_MON:
         pass
 
     def init_robot(self):
-        self.robot = DensoRobot(host=ROBOT_IP)
+        self.robot = DensoRobot(host=ROBOT_IP, logger=self.robot_logger)
         self.robot.start()
         self.robot.clear_error()
         self.find_and_setup_hand()
@@ -295,6 +295,13 @@ class Cobotta_Pro_MON:
             handler = logging.StreamHandler()
         self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
+        self.robot_logger = logging.getLogger("MON-ROBOT")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.robot_logger.addHandler(handler)
+        self.robot_logger.setLevel(logging.WARNING)
 
     def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
         self.setup_logger(log_queue)
