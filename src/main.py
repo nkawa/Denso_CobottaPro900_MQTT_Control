@@ -323,6 +323,9 @@ class MQTTWin:
             self.root, height=10)
         self.log_monitor.grid(
             row=26,column=0,padx=2,pady=2,columnspan=4, sticky="nsew")
+        self.log_monitor.tag_config("INFO", foreground="black")
+        self.log_monitor.tag_config("WARNING", foreground="orange")
+        self.log_monitor.tag_config("ERROR", foreground="red")
         self.update_monitor()
 
     def setup_logging(
@@ -519,7 +522,14 @@ class MQTTWin:
         at_bottom = False
         if box.yview()[1] >= 0.999:  # 浮動小数点の誤差を考慮
             at_bottom = True
-        box.insert(tk.END, msg + "\n")  # ログを表示
+        # ログレベルごとに色を変える
+        if "[ERROR]" in msg:
+            tag = "ERROR"
+        elif "[WARNING]" in msg:
+            tag = "WARNING"
+        else:
+            tag = "INFO"
+        box.insert(tk.END, msg + "\n", tag)  # ログを表示
         # 挿入後、元々一番下にいた場合のみ自動スクロール
         if at_bottom:
             box.see(tk.END)
