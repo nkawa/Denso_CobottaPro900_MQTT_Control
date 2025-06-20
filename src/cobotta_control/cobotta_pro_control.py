@@ -620,21 +620,31 @@ class Cobotta_Pro_CON:
 
     def control_loop_w_tool_change(self):
         # リアルタイム制御中にツールチェンジする
-        while True:
-            self.control_loop_w_recover_automatic()
-            next_tool_id = self.pose[17]
-            if next_tool_id != 0:
+        try:
+            while True:
                 try:
-                    self.pose[18] = 0
-                    self.tool_change(next_tool_id)
-                except ORiNException as e:
-                    self.logger.error("Error during tool change")
+                    self.control_loop_w_recover_automatic()
+                except Exception as e:
+                    self.leave_servo_mode()
+                    self.logger.error(
+                        "Error during control loop with recover automatic")
                     self.logger.error(f"{self.robot.format_error(e)}")
-                finally:
-                    self.pose[18] = 0
-                    self.pose[17] = 0
-            else:
-                break
+                next_tool_id = self.pose[17]
+                if next_tool_id != 0:
+                    try:
+                        self.pose[18] = 0
+                        self.tool_change(next_tool_id)
+                    except Exception as e:
+                        self.logger.error("Error during tool change")
+                        self.logger.error(f"{self.robot.format_error(e)}")
+                    finally:
+                        self.pose[18] = 0
+                        self.pose[17] = 0
+                else:
+                    break
+        except Exception as e:
+            self.logger.error("Error in control loop with tool change")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
     def get_tool_info(
         self, tool_infos: List[Dict[str, Any]], tool_id: int) -> Dict[str, Any]:
@@ -791,6 +801,21 @@ class Cobotta_Pro_CON:
         self.pose[18] = 0
         return
 
+    def tool_change_not_in_rt(self) -> None:
+        while True:
+            next_tool_id = self.pose[17]
+            if next_tool_id != 0:
+                try:
+                    self.pose[18] = 0
+                    self.tool_change(next_tool_id)
+                except Exception as e:
+                    self.logger.error("Error during tool change")
+                    self.logger.error(f"{self.robot.format_error(e)}")
+                finally:
+                    self.pose[18] = 0
+                    self.pose[17] = 0
+                    break
+
     def setup_logger(self, log_queue):
         self.logger = logging.getLogger("CTRL")
         if log_queue is not None:
@@ -810,35 +835,21 @@ class Cobotta_Pro_CON:
         self.init_realtime()
         while True:
             command = control_pipe.recv()
-            try:
-                if command["command"] == "enable":
-                    self.enable()
-                elif command["command"] == "disable":
-                    self.disable()
-                elif command["command"] == "default_pose":
-                    self.default_pose()
-                elif command["command"] == "tidy_pose":
-                    self.tidy_pose()
-                elif command["command"] == "release_hand":
-                    self.send_release()
-                elif command["command"] == "clear_error":
-                    self.clear_error()
-                elif command["command"] == "start_rt_control":
-                    self.control_loop_w_tool_change()
-                elif command["command"] == "tool_change":
-                    while True:
-                        next_tool_id = self.pose[17]
-                        if next_tool_id != 0:
-                            try:
-                                self.pose[18] = 0
-                                self.tool_change(next_tool_id)
-                            except ORiNException as e:
-                                self.logger.error("Error during tool change")
-                                self.logger.error(f"{self.robot.format_error(e)}")
-                            finally:
-                                self.pose[18] = 0
-                                self.pose[17] = 0
-                                break
-            except Exception as e:
-                self.leave_servo_mode()
-                self.logger.error(f"{self.robot.format_error(e)}")
+            if command["command"] == "enable":
+                self.enable()
+            elif command["command"] == "disable":
+                self.disable()
+            elif command["command"] == "default_pose":
+                self.default_pose()
+            elif command["command"] == "tidy_pose":
+                self.tidy_pose()
+            elif command["command"] == "release_hand":
+                self.send_release()
+            elif command["command"] == "clear_error":
+                self.clear_error()
+            elif command["command"] == "start_rt_control":
+                self.control_loop_w_tool_change()
+            elif command["command"] == "tool_change":
+                self.tool_change_not_in_rt()
+            else:
+                self.logger.warning(f"Unknown command: {command['command']}")
