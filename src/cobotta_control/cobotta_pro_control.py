@@ -171,7 +171,7 @@ class Cobotta_Pro_CON:
             # 現在情報を取得しているかを確認
             if self.pose[19] != 1:
                 time.sleep(t_intv)
-                self.logger.info("Wait for monitoring")
+                # self.logger.info("Wait for monitoring")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
@@ -180,7 +180,7 @@ class Cobotta_Pro_CON:
             # 目標値を取得しているかを確認
             if self.pose[20] != 1:
                 time.sleep(t_intv)
-                self.logger.info("Wait for target")
+                # self.logger.info("Wait for target")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
