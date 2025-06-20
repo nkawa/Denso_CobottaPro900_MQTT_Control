@@ -206,7 +206,7 @@ class ProcessManager:
         # [13]: ハンドの目標値
         # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
         # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
-        # [16]: 1: mqtt_control停止命令
+        # [16]: 1: リアルタイム制御停止命令（mqtt_control停止命令ではないことに注意）
         # [17]: 次のツール番号保持用。0のときのみツールチェンジを受け付ける
         # [18]: tool_changeでの制御プロセスと状態プロセスの同期用
         # [19]: 制御開始後の状態値の受信フラグ
@@ -287,7 +287,7 @@ class ProcessManager:
         self._send_command_to_control({"command": "release_hand"})
 
     def start_mqtt_control(self):
-        self._send_command_to_control({"command": "start_rt_control"})
+        self._send_command_to_control({"command": "start_mqtt_control"})
 
     def stop_mqtt_control(self):
         # mqtt_control中のみシグナルを出す

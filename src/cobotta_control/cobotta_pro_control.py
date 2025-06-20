@@ -148,14 +148,13 @@ class Cobotta_Pro_CON:
             else:
                 self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
-    def control_loop(self) -> Tuple[bool, str]:
+    def control_loop(self) -> bool:
+        """リアルタイム制御ループ"""
         self.last = 0
         self.logger.info("Start Main Loop")
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
-        code_stop = 0
-        message_stop = "Interrupted"
         while True:
             now = time.time()
 
@@ -175,7 +174,7 @@ class Cobotta_Pro_CON:
                 # self.logger.info("Wait for monitoring..")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
-                    return code_stop, message_stop
+                    return True
                 continue
 
             # 目標値を取得しているかを確認
@@ -184,7 +183,7 @@ class Cobotta_Pro_CON:
                 # self.logger.info("Wait for target..")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
-                    return code_stop, message_stop
+                    return True
                 continue
 
             # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
@@ -232,7 +231,7 @@ class Cobotta_Pro_CON:
                 self.logger.info("Starting to Control!")
                 # 制御する前に終了する場合即時終了可能
                 if stop:
-                    return code_stop, message_stop
+                    return True
                 self.last = now
 
                 # 目標値を遅延を許して極力線形補間するためのセットアップ
@@ -464,7 +463,7 @@ class Cobotta_Pro_CON:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
                     if not self.robot.is_error_level_0(e):
-                        return 2, "Error occurred"
+                        return False
 
                 if self.pose[13] == 1:
                     th1 = threading.Thread(target=self.send_grip)
@@ -492,48 +491,73 @@ class Cobotta_Pro_CON:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
                 if (control == self.last_control).all():
-                    return code_stop, message_stop
+                    return True
                 
             self.last_control = control
             self.last = now
 
-    def send_grip(self):
-        if self.tool_id == -1:
-            return
-        if self.hand_name == "onrobot_2fg7":
-            # NOTE: 呼ぶ度に目標の把持力は変更できるので
-            # VRコントローラーからの入力で動的に把持力を
-            # 変えることもできる (どういう仕組みを作るかは別)
-            self.hand.grip(waiting=False)
-        elif self.hand_name == "onrobot_vgc10":
-            self.hand.grip(waiting=False, vacuumA = 40,  vacuumB =40)
+    def send_grip(self) -> None:
+        try:
+            if self.tool_id == -1:
+                return
+            if self.hand_name == "onrobot_2fg7":
+                # NOTE: 呼ぶ度に目標の把持力は変更できるので
+                # VRコントローラーからの入力で動的に把持力を
+                # 変えることもできる (どういう仕組みを作るかは別)
+                self.hand.grip(waiting=False)
+            elif self.hand_name == "onrobot_vgc10":
+                self.hand.grip(waiting=False, vacuumA = 40,  vacuumB =40)
+        except Exception:
+            self.logger.exception("Error gripping hand")
+    
+    def send_release(self) -> None:
+        try:
+            if self.tool_id == -1:
+                return
+            if self.hand_name == "onrobot_2fg7":
+                # NOTE: 呼ぶ度に目標の把持力は変更できるので
+                # VRコントローラーからの入力で動的に把持力を
+                # 変えることもできる (どういう仕組みを作るかは別)
+                self.hand.release(waiting=False)
+            elif self.hand_name == "onrobot_vgc10":
+                self.hand.release(waiting=False)
+        except Exception:
+            self.logger.exception("Error releasing hand")
 
-    def send_release(self):
-        if self.tool_id == -1:
-            return
-        if self.hand_name == "onrobot_2fg7":
-            # NOTE: 呼ぶ度に目標の把持力は変更できるので
-            # VRコントローラーからの入力で動的に把持力を
-            # 変えることもできる (どういう仕組みを作るかは別)
-            self.hand.release(waiting=False)
-        elif self.hand_name == "onrobot_vgc10":
-            self.hand.release(waiting=False)
+    def enable(self) -> None:
+        try:
+            self.robot.enable_robot()
+        except Exception as e:
+            self.logger.error("Error enabling robot")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
-    def enable(self) -> bool:
-        self.robot.enable_robot()
-        # self.robot.SetAreaEnabled(0, False)
+    def disable(self) -> None:
+        try:
+            self.robot.disable()
+        except Exception as e:
+            self.logger.error("Error disabling robot")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
-    def disable(self) -> bool:
-        self.robot.disable()
+    def default_pose(self) -> None:
+        try:
+            self.robot.move_joint_until_completion(self.default_joint)
+        except Exception as e:
+            self.logger.error("Error moving to default pose")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
-    def default_pose(self) -> bool:
-        self.robot.move_joint_until_completion(self.default_joint)
+    def tidy_pose(self) -> None:
+        try:
+            self.robot.move_joint_until_completion(self.tidy_joint)
+        except Exception as e:
+            self.logger.error("Error moving to tidy pose")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
-    def tidy_pose(self):
-        self.robot.move_joint_until_completion(self.tidy_joint)
-
-    def clear_error(self) -> bool:
-        self.robot.clear_error()
+    def clear_error(self) -> None:
+        try:
+            self.robot.clear_error()
+        except Exception as e:
+            self.logger.error("Error clearing robot error")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
     def enter_servo_mode(self):
         # self.pose[14]は0のとき必ず通常モード。
@@ -556,82 +580,76 @@ class Cobotta_Pro_CON:
             time.sleep(0.008)
         self.pose[14] = 0
 
-    def control_loop_w_recover_automatic(self):
+    def control_loop_w_recover_automatic(self) -> bool:
+        """自動復帰を含むリアルタイム制御ループ"""
         try:
-            self.pose[15] = 1
             self.enter_servo_mode()
-        # モーターがOFFなどの理由でスレーブモードに入れない場合
-        # self.pose[15]を0に戻す
-        except ORiNException as e:
-            self.logger.error("Error entering servo mode")
+            # 自動復帰ループ
+            while True:
+                # 制御ループ
+                # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
+                # 後者の場合も例外は送出されない
+                success_stop = self.control_loop()
+                self.leave_servo_mode()
+                # ユーザーが要求した場合、自動復帰しない
+                if self.pose[16] == 1:
+                    self.pose[16] = 0
+                    if success_stop:
+                        self.logger.info("User required stop and succeeded")
+                        return True
+                    else:
+                        self.logger.warning("User required stop but failed")
+                        return False
+                # 自然に内部エラーが発生した場合、自動復帰を試みる
+                else:
+                    # 自動復帰の前にエラーを確実にモニタするため待機
+                    time.sleep(1)
+                    errors = self.robot.get_cur_error_info_all()
+                    self.logger.error(f"Error in control loop: {errors}")
+                    # 自動復帰可能エラー
+                    if self.robot.are_all_errors_stateless(errors):
+                        # 自動復帰を試行。失敗またはエラーの場合は通常モードに戻る。
+                        try:
+                            # エラー直後の自動復帰処理に失敗しても、
+                            # 同じ復帰処理を手動で行うと成功することもあるので
+                            # 手動で操作が可能な状態に戻す
+                            ret = self.robot.recover_automatic_enable()
+                            if not ret:
+                                raise ValueError(
+                                    "Automatic recover failed in timeout")
+                            self.enter_servo_mode()
+                            # 自動復帰完了
+                            continue
+                        except Exception as e:
+                            self.logger.error("Error during automatic recover")
+                            self.logger.error(f"{self.robot.format_error(e)}")
+                            self.leave_servo_mode()
+                            return False
+                    # 自動復帰不可能エラー
+                    else:
+                        self.logger.error(
+                            "Error is not automatically recoverable")
+                        return False
+        except Exception as e:
+            self.logger.error("Error in control loop with recover automatic")
             self.logger.error(f"{self.robot.format_error(e)}")
             self.leave_servo_mode()
-            self.pose[15] = 0
             self.pose[16] = 0
-            return
+            return False
 
+    def mqtt_control_loop(self) -> None:
+        """MQTTによる制御ループ"""
+        self.pose[15] = 1
         while True:
-            code_stop, message_stop = self.control_loop()
-            self.leave_servo_mode()
-            if code_stop == 0:
-                self.logger.info("User required stop and successfully done")
-                break
-            else:
-                if code_stop == 1:
-                    self.logger.warning(f"{message_stop}")
-                    # FIXME: 現状は現在地と目標値の乖離による場合は、
-                    # GUIのランプがOFFになる以外に、実験者が耳でも気づくように、
-                    # モーターの電源を切ることにする
-                    self.disable()
-                    break
-                # 自動復帰の前にエラーを確実にモニタするため待機
-                time.sleep(1)
-                errors = self.robot.get_cur_error_info_all()
-                self.logger.error(f"Error in control loop: {errors}")
-                # ユーザーが停止させようとしてきちんと停止しなかった場合
-                # エラーによらず通常モードに戻る。
-                if self.pose[16] == 1:
-                    self.logger.warning("User required stop and not successfully done")
-                    break
-                # 自動復帰可能エラー
-                elif self.robot.are_all_errors_stateless(errors):
-                    # 自動復帰を試行。失敗またはエラーの場合は通常モードに戻る。
-                    try:
-                        # エラー直後の自動復帰処理に失敗しても、
-                        # 同じ復帰処理を手動で行うと成功することもあるので
-                        # 手動で操作が可能な状態に戻す
-                        ret = self.robot.recover_automatic_enable()
-                        if not ret:
-                            self.logger.warning("Cannot automatically recover enable")
-                            break
-                        self.enter_servo_mode()
-                        continue
-                    # NOTE: 検証用。エラー処理が確立すれば不要と思われる
-                    except ORiNException as e:
-                        self.logger.error("Error during automatic recover")
-                        self.logger.error(f"{self.robot.format_error(e)}")
-                        self.leave_servo_mode()
-                        break
-                # 自動復帰不可能エラー
-                else:
-                    self.logger.error("Error is not automatically recoverable")
-                    break
-        self.pose[15] = 0
-        self.pose[16] = 0
-
-    def control_loop_w_tool_change(self):
-        # リアルタイム制御中にツールチェンジする
-        try:
-            while True:
-                try:
-                    self.control_loop_w_recover_automatic()
-                except Exception as e:
-                    self.leave_servo_mode()
-                    self.logger.error(
-                        "Error during control loop with recover automatic")
-                    self.logger.error(f"{self.robot.format_error(e)}")
-                next_tool_id = self.pose[17]
+            # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
+            success_stop = self.control_loop_w_recover_automatic()
+            # 停止フラグが成功の場合は、ユーザーが要求した場合のみありうる
+            next_tool_id = self.pose[17]
+            if success_stop:
+                # ツールチェンジが要求された場合
                 if next_tool_id != 0:
+                    # ツールチェンジに成功した場合は、ループを継続し
+                    # 失敗した場合は、ループを抜ける
                     try:
                         self.pose[18] = 0
                         self.tool_change(next_tool_id)
@@ -643,11 +661,19 @@ class Cobotta_Pro_CON:
                         self.pose[18] = 0
                         self.pose[17] = 0
                         break
+                # 単なる停止が要求された場合は、ループを抜ける
                 else:
                     break
-        except Exception as e:
-            self.logger.error("Error in control loop with tool change")
-            self.logger.error(f"{self.robot.format_error(e)}")
+            # 停止フラグが失敗の場合は、ユーザーが要求した場合か、
+            # 自然に内部エラーが発生した場合
+            else:
+                # ツールチェンジが要求された場合
+                if next_tool_id != 0:
+                    # 要求コマンドのみリセット
+                    self.pose[17] = 0
+                # ループを抜ける
+                break
+        self.pose[15] = 0
 
     def get_tool_info(
         self, tool_infos: List[Dict[str, Any]], tool_id: int) -> Dict[str, Any]:
@@ -857,8 +883,8 @@ class Cobotta_Pro_CON:
                 self.send_release()
             elif command["command"] == "clear_error":
                 self.clear_error()
-            elif command["command"] == "start_rt_control":
-                self.control_loop_w_tool_change()
+            elif command["command"] == "start_mqtt_control":
+                self.mqtt_control_loop()
             elif command["command"] == "tool_change":
                 self.tool_change_not_in_rt()
             else:
