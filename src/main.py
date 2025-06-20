@@ -337,7 +337,7 @@ class MQTTWin:
         if log_queue is not None:
             handlers.append(GUILoggingHandler(self))
         formatter = MicrosecondFormatter(
-            "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
+            "[%(asctime)s][%(name)s][%(levelname)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S.%f",
         )
         for handler in handlers:
