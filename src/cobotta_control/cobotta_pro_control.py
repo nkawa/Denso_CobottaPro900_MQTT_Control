@@ -151,7 +151,7 @@ class Cobotta_Pro_CON:
     def control_loop(self) -> bool:
         """リアルタイム制御ループ"""
         self.last = 0
-        self.logger.info("Start Main Loop")
+        self.logger.info("Start Control Loop")
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
@@ -171,7 +171,7 @@ class Cobotta_Pro_CON:
             # 現在情報を取得しているかを確認
             if self.pose[19] != 1:
                 time.sleep(t_intv)
-                # self.logger.info("Wait for monitoring..")
+                self.logger.info("Wait for monitoring")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
@@ -180,7 +180,7 @@ class Cobotta_Pro_CON:
             # 目標値を取得しているかを確認
             if self.pose[20] != 1:
                 time.sleep(t_intv)
-                # self.logger.info("Wait for target..")
+                self.logger.info("Wait for target")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
@@ -228,7 +228,7 @@ class Cobotta_Pro_CON:
 #                message_stop = "目標値が状態値から離れすぎています"
 
             if self.last == 0:
-                self.logger.info("Starting to Control!")
+                self.logger.info("Start sending control command")
                 # 制御する前に終了する場合即時終了可能
                 if stop:
                     return True
@@ -583,6 +583,7 @@ class Cobotta_Pro_CON:
     def control_loop_w_recover_automatic(self) -> bool:
         """自動復帰を含むリアルタイム制御ループ"""
         try:
+            self.logger.info("Start Control Loop with Automatic Recover")
             self.enter_servo_mode()
             # 自動復帰ループ
             while True:
@@ -618,6 +619,7 @@ class Cobotta_Pro_CON:
                                 raise ValueError(
                                     "Automatic recover failed in timeout")
                             self.enter_servo_mode()
+                            self.logger.info("Automatic recover succeeded")
                             # 自動復帰完了
                             continue
                         except Exception as e:
@@ -639,6 +641,7 @@ class Cobotta_Pro_CON:
 
     def mqtt_control_loop(self) -> None:
         """MQTTによる制御ループ"""
+        self.logger.info("Start MQTT Control Loop")
         self.pose[15] = 1
         while True:
             # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
@@ -648,6 +651,8 @@ class Cobotta_Pro_CON:
             if success_stop:
                 # ツールチェンジが要求された場合
                 if next_tool_id != 0:
+                    self.logger.info(
+                        f"User required tool change to: {next_tool_id}")
                     # ツールチェンジに成功した場合は、ループを継続し
                     # 失敗した場合は、ループを抜ける
                     try:
@@ -655,6 +660,7 @@ class Cobotta_Pro_CON:
                         self.tool_change(next_tool_id)
                         self.pose[18] = 0
                         self.pose[17] = 0
+                        self.logger.info("Tool change succeeded")
                     except Exception as e:
                         self.logger.error("Error during tool change")
                         self.logger.error(f"{self.robot.format_error(e)}")
@@ -863,6 +869,7 @@ class Cobotta_Pro_CON:
 
     def run_proc(self, control_pipe, slave_mode_lock, log_queue):
         self.setup_logger(log_queue)
+        self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.slave_mode_lock = slave_mode_lock

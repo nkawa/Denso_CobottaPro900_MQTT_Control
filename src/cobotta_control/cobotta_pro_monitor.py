@@ -81,11 +81,11 @@ class Cobotta_Pro_MON:
                 self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
     def on_connect(self,client, userdata, flag, rc,proc):
-        self.logger.info("Connected with result code " + str(rc))  # 接続できた旨表示
+        self.logger.info("MQTT connected with result code: " + str(rc))  # 接続できた旨表示
 
     def on_disconnect(self,client, userdata, rc):
         if  rc != 0:
-            self.logger.warning("Unexpected disconnection.")
+            self.logger.warning("MQTT unexpected disconnection.")
 
     def connect_mqtt(self):
         self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -312,6 +312,7 @@ class Cobotta_Pro_MON:
 
     def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
         self.setup_logger(log_queue)
+        self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict

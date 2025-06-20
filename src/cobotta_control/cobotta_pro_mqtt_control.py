@@ -123,7 +123,6 @@ class Cobotta_Pro_MQTT:
             if MQTT_MODE == "metawork":
                 js = json.loads(msg.payload)
                 goggles_id = js["devId"]
-                self.logger.info(f"Connected to goggles: {goggles_id}")
                 mqtt_ctrl_topic = MQTT_CTRL_TOPIC + "/" + goggles_id
                 if mqtt_ctrl_topic != self.mqtt_ctrl_topic:
                     if self.mqtt_ctrl_topic is not None:
@@ -159,6 +158,7 @@ class Cobotta_Pro_MQTT:
 
     def run_proc(self, mqtt_control_dict, mqtt_control_lock, log_queue):
         self.setup_logger(log_queue)
+        self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.mqtt_control_dict = mqtt_control_dict
