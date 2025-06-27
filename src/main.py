@@ -88,7 +88,7 @@ class MQTTWin:
  
         self.root = root
         self.root.title("MQTT-CobottaPro900 Controller")
-        self.root.geometry("1100x980")
+        self.root.geometry("1100x1080")
 
         for col in range(8):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
@@ -191,6 +191,92 @@ class MQTTWin:
             tk.Label(self.frame_mqtt_control, text="MQTTControl")
         self.label_mqtt_control.pack(side="left",padx=2)
 
+        # 加速機能つきボタン
+        class AccelerateButton(tk.Button):
+            def __init__(
+                self,
+                master,
+                jog_callback,
+                jog_args,
+                accelerate_settings=[
+                    {"elapsed": 0, "step": 0.1, "interval": 100},
+                    {"elapsed": 1, "step": 1, "interval": 250},
+                ],
+                **kwargs,
+            ):
+                super().__init__(master, **kwargs)
+                self.jog_callback = jog_callback
+                self.jog_args = jog_args
+                self.accelerate_settings = accelerate_settings
+                self._after_id = None
+                self._interval = 100  # ms 初期間隔
+                self._step = 1  # 初期増分
+                self._press_time = None
+                self.bind('<ButtonPress-1>', self._on_press)
+                self.bind('<ButtonRelease-1>', self._on_release)
+                self.bind('<Leave>', self._on_release)
+
+            def _on_press(self, event=None):
+                self._press_time = datetime.datetime.now()
+                self._repeat()
+
+            def _on_release(self, event=None):
+                if self._after_id:
+                    self.after_cancel(self._after_id)
+                    self._after_id = None
+                self._press_time = None
+
+            def _repeat(self):
+                # 経過時間で加速
+                if self._press_time:
+                    elapsed = (datetime.datetime.now() - self._press_time).total_seconds()
+                    for setting in self.accelerate_settings:
+                        if elapsed >= setting["elapsed"]:
+                            self._step = setting["step"]
+                            self._interval = setting["interval"]
+                    # コールバック呼び出し
+                    self.jog_callback(*self.jog_args, step=self._step)
+                    self._after_id = self.after(self._interval, self._repeat)
+
+        # Joint Jog
+        row += 1
+        tk.Label(self.root, text="Joint Jog").grid(row=row, column=0, padx=2, pady=2, sticky="w")
+        joint_names = ["J1", "J2", "J3", "J4", "J5", "J6"]
+        joint_accelerate_settings = [
+            {"elapsed": 0, "step": 0.1, "interval": 100},
+            {"elapsed": 1, "step": 1, "interval": 250},
+        ]
+        for i, joint in enumerate(joint_names):
+            frame = tk.Frame(self.root)
+            frame.grid(row=row, column=1+i, padx=2, pady=2, sticky="ew")
+            tk.Label(frame, text=joint, width=2, anchor="e").pack(side="left", padx=10)
+            btn_minus = AccelerateButton(frame, self.jog_joint_accel, (i, -1), 
+                                         accelerate_settings=joint_accelerate_settings, text="-", width=2)
+            btn_minus.pack(side="left", expand=True, fill="x")
+            btn_plus = AccelerateButton(frame, self.jog_joint_accel, (i, 1),
+                                         accelerate_settings=joint_accelerate_settings, text="+", width=2)
+            btn_plus.pack(side="left", expand=True, fill="x")
+
+        # TCP Jog
+        row += 1
+        tk.Label(self.root, text="TCP Jog").grid(row=row, column=0, padx=2, pady=2, sticky="w")
+        tcp_names = ["X", "Y", "Z", "RX", "RY", "RZ"]
+        tcp_accelerate_settings = [
+            {"elapsed": 0, "step": 0.1, "interval": 100},
+            {"elapsed": 1, "step": 1, "interval": 250},
+            {"elapsed": 2, "step": 10, "interval": 500},
+        ]
+        for i, tcp in enumerate(tcp_names):
+            frame = tk.Frame(self.root)
+            frame.grid(row=row, column=1+i, padx=2, pady=2, sticky="ew")
+            tk.Label(frame, text=tcp, width=2, anchor="e").pack(side="left", padx=10)
+            btn_minus = AccelerateButton(frame, self.jog_tcp_accel, (i, -1),
+                                         accelerate_settings=tcp_accelerate_settings, text="-", width=2)
+            btn_minus.pack(side="left", expand=True, fill="x")
+            btn_plus = AccelerateButton(frame, self.jog_tcp_accel, (i, 1),
+                                         accelerate_settings=tcp_accelerate_settings, text="+", width=2)
+            btn_plus.pack(side="left", expand=True, fill="x")
+
         row += 1
 
         tk.Label(self.root, text="State").grid(
@@ -215,7 +301,7 @@ class MQTTWin:
             text_box_state.pack(side="right", padx=2, expand=True, fill="x")
 
         frame_state = tk.Frame(self.root)
-        frame_state.grid(row=row+1, column=2, padx=2, pady=2, sticky="ew", columnspan=2)
+        frame_state.grid(row=row+7, column=0, padx=2, pady=2, sticky="ew", columnspan=2)
         label_target = tk.Label(frame_state, text="Tool ID")
         label_target.pack(side="left", padx=10)
         string_var_state = tk.StringVar()
@@ -230,7 +316,26 @@ class MQTTWin:
             anchor="e",
         )
         text_box_state.pack(side="right", padx=2, expand=True, fill="x")
-    
+
+        self.string_var_states_tcp = {}
+        for i in range(6):
+            frame_state = tk.Frame(self.root)
+            frame_state.grid(row=row+1+i, column=2, padx=2, pady=2, sticky="ew", columnspan=2)
+            label_target = tk.Label(frame_state, text=f"{tcp_names[i]}")
+            label_target.pack(side="left", padx=10)
+            string_var_state = tk.StringVar()
+            string_var_state.set("")
+            self.string_var_states_tcp[i] = string_var_state
+            text_box_state = tk.Label(
+                frame_state,
+                textvariable=string_var_state,
+                bg="white",
+                relief="solid",
+                bd=1,
+                anchor="e",
+            )
+            text_box_state.pack(side="right", padx=2, expand=True, fill="x")
+
         tk.Label(self.root, text="Target").grid(
             row=row, column=4, padx=2, pady=2, sticky="w", columnspan=4)
         self.string_var_targets = {}
@@ -254,7 +359,7 @@ class MQTTWin:
             text_box_target.pack(side="right", padx=2, expand=True, fill="x")
 
         frame_target = tk.Frame(self.root)
-        frame_target.grid(row=row+1, column=6, padx=2, pady=2, sticky="ew", columnspan=2)
+        frame_target.grid(row=row+7, column=4, padx=2, pady=2, sticky="ew", columnspan=2)
         label_target = tk.Label(frame_target, text="grip")
         label_target.pack(side="left", padx=10)
         string_var_target = tk.StringVar()
@@ -270,7 +375,7 @@ class MQTTWin:
         )
         text_box_target.pack(side="right", padx=2, expand=True, fill="x")
 
-        row += 7  # 1 for label, 6 for J1-J6
+        row += 8
 
         tk.Label(self.root, text="Topics").grid(
             row=row, column=0, padx=2, pady=10, sticky="w", columnspan=8)
@@ -462,6 +567,24 @@ class MQTTWin:
             return
         self.pm.tool_change(tool_id)
 
+    def jog_joint(self, joint, direction):
+        if not self.pm.state_control:
+            return
+        self.pm.jog_joint(joint, direction)
+
+    def jog_tcp(self, axis, direction):
+        if not self.pm.state_control:
+            return
+        self.pm.jog_tcp(axis, direction)
+
+    def jog_joint_accel(self, joint, direction, step=1):
+        # 加速対応のジョイントジョグコールバック
+        self.jog_joint(joint, direction * step)
+
+    def jog_tcp_accel(self, axis, direction, step=1):
+        # 加速対応のTCPジョグコールバック
+        self.jog_tcp(axis, direction * step)
+
     def update_monitor(self):
         # モニタープロセスからの情報
         log = self.pm.get_current_monitor_log()
@@ -469,6 +592,7 @@ class MQTTWin:
             # ロボットの姿勢情報が流れるトピック
             topic_type = log.pop("topic_type")
             topic = log.pop("topic")
+            poses = log.pop("poses", None)
             log_str = json.dumps(log, ensure_ascii=False)
             self.string_var_topics[topic_type].set(topic)
             self.update_topic(log_str, self.topic_monitors[topic_type])
@@ -493,6 +617,9 @@ class MQTTWin:
                 self.string_var_states["Tool ID"].set(f"{tool_id}")
             else:
                 self.string_var_states["Tool ID"].set("")
+            if poses is not None:
+                for i in range(6):
+                    self.string_var_states_tcp[i].set(f"{poses[i]:.2f}")
 
         # MQTT制御プロセスからの情報
         log = self.pm.get_current_mqtt_control_log()

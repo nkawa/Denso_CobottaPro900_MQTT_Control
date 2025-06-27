@@ -851,6 +851,20 @@ class Cobotta_Pro_CON:
                     self.pose[17] = 0
                     break
 
+    def jog_joint(self, joint: int, direction: float) -> None:
+        try:
+            self.robot.jog_joint(joint, direction)
+        except Exception as e:
+            self.logger.error("Error during joint jog")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
+    def jog_tcp(self, axis: int, direction: float) -> None:
+        try:
+            self.robot.jog_tcp(axis, direction)
+        except Exception as e:
+            self.logger.error("Error during TCP jog")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
     def setup_logger(self, log_queue):
         self.logger = logging.getLogger("CTRL")
         if log_queue is not None:
@@ -894,5 +908,9 @@ class Cobotta_Pro_CON:
                 self.mqtt_control_loop()
             elif command["command"] == "tool_change":
                 self.tool_change_not_in_rt()
+            elif command["command"] == "jog_joint":
+                self.jog_joint(**command["params"])
+            elif command["command"] == "jog_tcp":
+                self.jog_tcp(**command["params"])
             else:
                 self.logger.warning(f"Unknown command: {command['command']}")

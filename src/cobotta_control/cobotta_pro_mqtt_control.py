@@ -298,6 +298,12 @@ class ProcessManager:
         self.ar[17] = tool_id
         self._send_command_to_control({"command": "tool_change"})
 
+    def jog_joint(self, joint, direction):
+        self._send_command_to_control({"command": "jog_joint", "params": {"joint": joint, "direction": direction}})
+
+    def jog_tcp(self, axis, direction):
+        self._send_command_to_control({"command": "jog_tcp", "params": {"axis": axis, "direction": direction}})
+
     def get_current_monitor_log(self):
         with self.monitor_lock:
             monitor_dict = self.monitor_dict.copy()

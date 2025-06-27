@@ -264,7 +264,7 @@ class DensoRobot:
         self.logger.info("move_default_pose")
         self.move_pose(self._default_pose)
 
-    def move_pose(self, pose, interpolation: int = 1, fig: Optional[int] = None, option: str = ""):
+    def move_pose(self, pose, interpolation: int = 1, fig: Optional[int] = None, path: str = "@E", option: str = ""):
         """
         option: 動作オプション。"NEXT": 非同期実行オプション
         """
@@ -283,13 +283,21 @@ class DensoRobot:
         # 3: MOVE C（円弧補間動作）
         # 4: MOVE S
         # 第3引数
+        # @0は、目標位置に動作指令値が到達したら次のコマンドに移行する。
         # @Eは、目標位置にエンコーダ値（測定位置）が到達するまで待ち停止する。このときの位置は関節角度。
         # @Pは、目標位置の近く（自動設定）にエンコーダ値が到達したら次のコマンドに移行する。
         # @<数字>は、@Pを、目標位置の近くを数字（mm）に設定した上で実行。
         # P(X, Y, Z, Rx, Ry, Rz, Fig)はTCP点の位置、姿勢、形態
-        self._bcap.robot_move(self._hRob, interpolation, f"@E P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
+        self._bcap.robot_move(self._hRob, interpolation, f"{path} P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
         if prev_servo_mode:
             self.enter_servo_mode()
+
+    def jog_tcp(self, axis: int, direction: float) -> None:
+        poses = self.get_current_pose()
+        poses = np.asarray(poses)
+        poses[axis] += direction
+        # 直接補間動作、形態が大きく変化するのを抑制する、繰り返し動作させるので途中で毎回停止させない
+        self.move_pose(poses.tolist(), interpolation=2, fig=-3, path="@0")
 
     def move_pose_by_diff(self, diff: List[float], option: str = "") -> None:
         current_pose = self.get_current_pose()
@@ -350,6 +358,12 @@ class DensoRobot:
         self._bcap.robot_move(self._hRob, 1, f"@E J({joint_str})", option)
         if prev_servo_mode:
             self.enter_servo_mode()
+
+    def jog_joint(self, joint: int, direction: float) -> None:
+        joints = self.get_current_joint()
+        joints = np.asarray(joints)
+        joints[joint] += direction
+        self.move_joint(joints.tolist())
 
     def move_joint_until_completion(
         self,
