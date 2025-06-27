@@ -93,66 +93,36 @@ class MQTTWin:
         for col in range(4):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
         
+        row = 0
         self.button_ConnectRobot = \
             tk.Button(self.root, text="ConnectRobot", padx=5,
                       command=self.ConnectRobot, state="normal")
-        self.button_ConnectRobot.grid(row=0,column=0,padx=2,pady=2,sticky="ew")
+        self.button_ConnectRobot.grid(row=row,column=0,padx=2,pady=2,sticky="ew")
 
         self.button_ConnectMQTT = \
             tk.Button(self.root, text="ConnectMQTT", padx=5,
                              command=self.ConnectMQTT, state="normal")
-        self.button_ConnectMQTT.grid(row=0,column=1,padx=2,pady=2,sticky="ew")
+        self.button_ConnectMQTT.grid(row=row,column=1,padx=2,pady=2,sticky="ew")
+
+        row += 1
 
         self.button_EnableRobot = \
             tk.Button(self.root, text="EnableRobot", padx=5,
                       command=self.EnableRobot, state="disabled")
-        self.button_EnableRobot.grid(row=1,column=0,padx=2,pady=2,sticky="ew")
+        self.button_EnableRobot.grid(row=row,column=0,padx=2,pady=2,sticky="ew")
 
         self.button_DisableRobot = \
             tk.Button(self.root, text="DisableRobot", padx=5,
                       command=self.DisableRobot, state="disabled")
-        self.button_DisableRobot.grid(row=1,column=1,padx=2,pady=2,sticky="ew")
+        self.button_DisableRobot.grid(row=row,column=1,padx=2,pady=2,sticky="ew")
 
         self.button_ReleaseHand = \
             tk.Button(self.root, text="ReleaseHand", padx=5,
                       command=self.ReleaseHand, state="disabled")
-        self.button_ReleaseHand.grid(row=1,column=2,padx=2,pady=2,sticky="ew")
-
-        self.button_DefaultPose = \
-            tk.Button(self.root, text="DefaultPose", padx=5,
-                      command=self.DefaultPose, state="disabled")
-        self.button_DefaultPose.grid(row=2,column=0,padx=2,pady=2,sticky="ew")
-
-        self.button_TidyPose = \
-            tk.Button(self.root, text="TidyPose", padx=5,
-                      command=self.TidyPose, state="disabled")
-        self.button_TidyPose.grid(row=2,column=1,padx=2,pady=2,sticky="ew")
-
-        self.button_ClearError = \
-            tk.Button(self.root, text="ClearError", padx=5,
-                      command=self.ClearError, state="disabled")
-        self.button_ClearError.grid(row=2,column=2,padx=2,pady=2,sticky="ew")
-
-        self.button_StartMQTTControl = \
-            tk.Button(self.root, text="StartMQTTControl", padx=5,
-                      command=self.StartMQTTControl, state="disabled")
-        self.button_StartMQTTControl.grid(
-            row=3,column=0,padx=2,pady=2,sticky="ew")
-        
-        self.button_StopMQTTControl = \
-            tk.Button(self.root, text="StopMQTTControl", padx=5,
-                      command=self.StopMQTTControl, state="disabled")
-        self.button_StopMQTTControl.grid(
-            row=3,column=1,padx=2,pady=2,sticky="ew")
-
-        self.button_ToolChange = \
-            tk.Button(self.root, text="ToolChange", padx=5,
-                      command=self.ToolChange, state="disabled")
-        self.button_ToolChange.grid(
-            row=3,column=2,padx=2,pady=2,sticky="ew")
+        self.button_ReleaseHand.grid(row=row,column=2,padx=2,pady=2,sticky="ew")
 
         self.frame_enabled = tk.Frame(self.root)
-        self.frame_enabled.grid(row=1,column=3,padx=2,pady=2,sticky="w")
+        self.frame_enabled.grid(row=row,column=3,padx=2,pady=2,sticky="w")
         self.canvas_enabled = \
             tk.Canvas(self.frame_enabled, width=10, height=10)
         self.canvas_enabled.pack(side="left",padx=10)
@@ -162,8 +132,25 @@ class MQTTWin:
             tk.Label(self.frame_enabled, text="Enabled")
         self.label_enabled.pack(side="left",padx=2)
 
+        row += 1
+
+        self.button_DefaultPose = \
+            tk.Button(self.root, text="DefaultPose", padx=5,
+                      command=self.DefaultPose, state="disabled")
+        self.button_DefaultPose.grid(row=row,column=0,padx=2,pady=2,sticky="ew")
+
+        self.button_TidyPose = \
+            tk.Button(self.root, text="TidyPose", padx=5,
+                      command=self.TidyPose, state="disabled")
+        self.button_TidyPose.grid(row=row,column=1,padx=2,pady=2,sticky="ew")
+
+        self.button_ClearError = \
+            tk.Button(self.root, text="ClearError", padx=5,
+                      command=self.ClearError, state="disabled")
+        self.button_ClearError.grid(row=row,column=2,padx=2,pady=2,sticky="ew")
+
         self.frame_error = tk.Frame(self.root)
-        self.frame_error.grid(row=2,column=3,padx=2,pady=2,sticky="w")
+        self.frame_error.grid(row=row,column=3,padx=2,pady=2,sticky="w")
         self.canvas_error = \
             tk.Canvas(self.frame_error, width=10, height=10)
         self.canvas_error.pack(side="left",padx=10)
@@ -173,8 +160,28 @@ class MQTTWin:
             tk.Label(self.frame_error, text="Error")
         self.label_error.pack(side="left",padx=2)
 
+        row += 1
+
+        self.button_StartMQTTControl = \
+            tk.Button(self.root, text="StartMQTTControl", padx=5,
+                      command=self.StartMQTTControl, state="disabled")
+        self.button_StartMQTTControl.grid(
+            row=row,column=0,padx=2,pady=2,sticky="ew")
+        
+        self.button_StopMQTTControl = \
+            tk.Button(self.root, text="StopMQTTControl", padx=5,
+                      command=self.StopMQTTControl, state="disabled")
+        self.button_StopMQTTControl.grid(
+            row=row,column=1,padx=2,pady=2,sticky="ew")
+
+        self.button_ToolChange = \
+            tk.Button(self.root, text="ToolChange", padx=5,
+                      command=self.ToolChange, state="disabled")
+        self.button_ToolChange.grid(
+            row=row,column=2,padx=2,pady=2,sticky="ew")
+
         self.frame_mqtt_control = tk.Frame(self.root)
-        self.frame_mqtt_control.grid(row=3,column=3,padx=2,pady=2,sticky="w")
+        self.frame_mqtt_control.grid(row=row,column=3,padx=2,pady=2,sticky="w")
         self.canvas_mqtt_control = \
             tk.Canvas(self.frame_mqtt_control, width=10, height=10)
         self.canvas_mqtt_control.pack(side="left",padx=10)
@@ -185,11 +192,11 @@ class MQTTWin:
         self.label_mqtt_control.pack(side="left",padx=2)
 
         tk.Label(self.root, text="State").grid(
-            row=4, column=0, padx=2, pady=10, sticky="w", columnspan=2)
+            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=2)
         self.string_var_states = {}
         for i in range(6):
             frame_state = tk.Frame(self.root)
-            frame_state.grid(row=5+i, column=0, padx=2, pady=2, sticky="ew")
+            frame_state.grid(row=row+1+i, column=0, padx=2, pady=2, sticky="ew")
             label_target = tk.Label(frame_state, text=f"J{i + 1}")
             label_target.pack(side="left", padx=10)
             string_var_state = tk.StringVar()
@@ -206,7 +213,7 @@ class MQTTWin:
             text_box_state.pack(side="right", padx=2, expand=True, fill="x")
 
         frame_state = tk.Frame(self.root)
-        frame_state.grid(row=5, column=1, padx=2, pady=2, sticky="ew")
+        frame_state.grid(row=row+1, column=1, padx=2, pady=2, sticky="ew")
         label_target = tk.Label(frame_state, text="Tool ID")
         label_target.pack(side="left", padx=10)
         string_var_state = tk.StringVar()
@@ -223,12 +230,12 @@ class MQTTWin:
         text_box_state.pack(side="right", padx=2, expand=True, fill="x")
     
         tk.Label(self.root, text="Target").grid(
-            row=4, column=2, padx=2, pady=2, sticky="w", columnspan=2)
+            row=row, column=2, padx=2, pady=2, sticky="w", columnspan=2)
         self.string_var_targets = {}
         for i in range(6):
             frame_target = tk.Frame(self.root)
             frame_target.grid(
-                row=5+i, column=2, padx=2, pady=2, sticky="ew")
+                row=row+1+i, column=2, padx=2, pady=2, sticky="ew")
             label_target = tk.Label(frame_target, text=f"J{i + 1}")
             label_target.pack(side="left", padx=10)
             string_var_target = tk.StringVar()
@@ -245,7 +252,7 @@ class MQTTWin:
             text_box_target.pack(side="right", padx=2, expand=True, fill="x")
 
         frame_target = tk.Frame(self.root)
-        frame_target.grid(row=5, column=3, padx=2, pady=2, sticky="ew")
+        frame_target.grid(row=row+1, column=3, padx=2, pady=2, sticky="ew")
         label_target = tk.Label(frame_target, text="grip")
         label_target.pack(side="left", padx=10)
         string_var_target = tk.StringVar()
@@ -261,8 +268,10 @@ class MQTTWin:
         )
         text_box_target.pack(side="right", padx=2, expand=True, fill="x")
 
+        row += 7  # 1 for label, 6 for J1-J6
+
         tk.Label(self.root, text="Topics").grid(
-            row=11, column=0, padx=2, pady=10, sticky="w", columnspan=4)
+            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=4)
         topic_types = [
             "mgr/register",
             "dev",
@@ -275,7 +284,7 @@ class MQTTWin:
         for i, topic_type in enumerate(topic_types):
             frame_topic = tk.Frame(self.root)
             frame_topic.grid(
-                row=12+3*i, column=0, padx=2, pady=2,
+                row=row+1+3*i, column=0, padx=2, pady=2,
                 sticky="ew", columnspan=4)
             label_topic_type = tk.Label(frame_topic, text=topic_type)
             label_topic_type.pack(side="left", padx=2)
@@ -294,16 +303,18 @@ class MQTTWin:
             text_box_topic.pack(side="left", padx=2, expand=True, fill="x")
             frame_topic = tk.Frame(self.root)
             frame_topic.grid(
-                row=13+3*i, column=0, padx=2, pady=2,
+                row=row+2+3*i, column=0, padx=2, pady=2,
                 sticky="ew", columnspan=4, rowspan=2)
             self.topic_monitors[topic_type] = scrolledtext.ScrolledText(
                 frame_topic, height=3)
             self.topic_monitors[topic_type].pack(
                 side="left", padx=2, expand=True, fill="both")
 
+        row += 1 + 3*len(topic_types)
+
         frame_sm = tk.Frame(self.root)
         frame_sm.grid(
-            row=24, column=0, padx=2, pady=10, sticky="ew", columnspan=4)
+            row=row, column=0, padx=2, pady=10, sticky="ew", columnspan=4)
         label_sm = tk.Label(frame_sm, text="Shared Memory (rounded)")
         label_sm.pack(side="left", padx=2)
         self.string_var_sm = tk.StringVar()
@@ -317,12 +328,14 @@ class MQTTWin:
         )
         text_box_sm.pack(side="left", padx=2, expand=True, fill="x")
 
+        row += 1
+
         tk.Label(self.root, text="Log Monitor").grid(
-            row=25, column=0, padx=2, pady=2, sticky="w", columnspan=4)
+            row=row, column=0, padx=2, pady=2, sticky="w", columnspan=4)
         self.log_monitor = scrolledtext.ScrolledText(
             self.root, height=10)
         self.log_monitor.grid(
-            row=26,column=0,padx=2,pady=2,columnspan=4, sticky="nsew")
+            row=row+1,column=0,padx=2,pady=2,columnspan=4, sticky="nsew")
         self.log_monitor.tag_config("INFO", foreground="black")
         self.log_monitor.tag_config("WARNING", foreground="orange")
         self.log_monitor.tag_config("ERROR", foreground="red")
