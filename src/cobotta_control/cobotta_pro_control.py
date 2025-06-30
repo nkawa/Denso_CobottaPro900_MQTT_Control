@@ -816,11 +816,16 @@ class Cobotta_Pro_CON:
         self.robot.move_pose(tool_base, fig=-3)
         if next_tool_info["id"] == 4:
             # tool_baseから箱の手前まで直接行くと台にぶつかりそうなので少し手前に移動
-            self.robot.move_pose(
-                [-229.66, -413.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
+            # pose = [-302.91, -500.59, 830.94, -49.42, 88.43, -138.91]
+            # jointで移動したほうが特異点を経由しないので止まりにくい
+            self.robot.move_joint(
+                [-113.97, 5.29, 54.20, -137.21, -37.51, 142.98]
+            )
             # 箱の手前に移動
-            self.robot.move_pose(
-                [-229.66, -613.48, 703.63, -1.44, 88.95, -90.58], fig=-3)
+            # pose = [-302.92, -560.30, 830.96, -49.35, 88.43, -138.85]
+            self.robot.move_joint(
+                [-110.01, 11.00, 48.76, -142.45, -35.12, 147.03]
+            )
         else:
             # ツールチェンジ後に実機をVRに合わせる場合
             # ツールチェンジ前の位置だけでなく関節角度も合わせる必要がある
@@ -863,6 +868,114 @@ class Cobotta_Pro_CON:
             self.robot.jog_tcp(axis, direction)
         except Exception as e:
             self.logger.error("Error during TCP jog")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
+    def demo_put_down_box(self) -> None:
+        """
+        デモ用に棚の上の箱を作業台に下ろす動き
+        ロボットと棚の上の箱の位置関係上、ロボットの特異姿勢（ひじ、手首特異姿勢）
+        が集まっており、それらをかいくぐってなんとか下ろすようにしている
+        したがって棚の上の箱の位置はほぼ同じ位置にあることを前提とする
+        この関数を呼ぶ前に、ロボットの先端のホルダーを棚の上の箱に引っ掛けておく
+        """
+        try:
+            # この関数を呼ぶ前にホルダーを箱に引っ掛けておく
+            # 棚の上の箱はおおよそこの位置にあることを前提とする
+            target = [-302.92, -660.89, 830.96, -49.35, 88.43, -138.84]
+            ranges = [
+                ("X", 0, target[0] - 50, target[0] + 50),
+                ("Y", 1, target[1] - 50, target[1] + 50),
+                ("Z", 2, target[2] - 20, target[2] + 80),
+            ]
+            state = self.robot.get_current_pose()
+            violations = []
+            for label, idx, low, high in ranges:
+                if not (low < state[idx] < high):
+                    violations.append(
+                        f"{label}: {state[idx]:.2f} "
+                        f"(required: {low:.2f} < {label} < {high:.2f})")
+            if violations:
+                msg = "Position out of range:\n" + "\n".join(violations)
+                raise ValueError(msg)
+            # 箱を持ち上げる
+            up_state = state.copy()
+            up_state[2] += 50
+            # 形態1
+            # 直線移動、形態一定で移動する
+            self.robot.move_pose(up_state, interpolation=2, fig=-2)
+            # 箱を棚から出す
+            self.robot.move_pose(
+                [-302.97, -140.75, 885.68, -49.70, 88.44, -139.19],
+                interpolation=2, fig=-2
+            )
+            # 形態が変わる場所はPTPで移動する
+            # 形態5
+            self.robot.move_pose(
+                [-302.97, -135.03, 885.67, -49.70, 88.44, -139.19],
+                interpolation=1, fig=-3
+            )
+            # 形態69
+            self.robot.move_pose(
+                [-302.87, -131.23, 885.66, -49.75, 88.45, -139.24],
+                interpolation=1, fig=-3
+            )
+            self.robot.move_pose(
+                [-302.97, -22.83, 885.52, -49.60, 88.44, -139.09],
+                interpolation=2, fig=-2
+            )
+            # 箱を作業台の真上に移動させる
+            self.robot.move_pose(
+                [-457.80, -22.82, 885.51, -49.58, 88.45, -139.08],
+                interpolation=2, fig=-2
+            )
+            # 作業台の上に箱を下ろす
+            self.robot.move_pose(
+                [-457.80, -22.67, 543.43, -49.78, 88.45, -139.27],
+                interpolation=2, fig=-2
+            )
+            # 形態65
+            self.robot.move_pose(
+                [-457.80, -22.66, 531.33, -49.83, 88.46, -139.31],
+                interpolation=1, fig=-3
+            )
+            self.robot.move_pose(
+                [-457.80, -22.82, 39.16, -49.58, 88.45, -139.07],
+                interpolation=2, fig=-2
+            )
+            # 箱からホルダーを抜く
+            self.robot.move_pose(
+                [-457.80, 15.20, 39.16, -49.58, 88.45, -139.07],
+                interpolation=2, fig=-2
+            )
+            # ホルダーを上に引き上げる
+            self.robot.move_pose(
+                [-457.80, 15.20, 459.68, -49.58, 88.45, -139.05],
+                interpolation=2, fig=-2
+            )
+            # ツール先端を下方向に向ける
+            self.robot.move_pose(
+                [-457.81, 15.20, 459.67, -178.82, 0.04, 90.50],
+                interpolation=1, fig=-3
+            )
+        except Exception as e:
+            self.logger.error("Error during demo put down box")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
+    def demo_put_down_box_not_in_rt(self) -> None:
+        """デモ用に棚の上の箱を作業台に下ろす動き (リアルタイム制御ではない)"""
+        try:
+            if self.tool_id != 4:
+                raise ValueError("Tool is not the box holder")
+            # self.robot.move_pose(
+            #     [-302.92, -660.89, 830.96, -49.35, 88.43, -138.84],
+            #     interpolation=1, fig=-3
+            # )
+            self.robot.move_joint(
+                [-105.27, 22.47, 35.35, -151.32, -34.53, 154.84]
+            )
+            self.demo_put_down_box()
+        except Exception as e:
+            self.logger.error("Error during demo put down box not in rt")
             self.logger.error(f"{self.robot.format_error(e)}")
 
     def setup_logger(self, log_queue):
@@ -912,5 +1025,7 @@ class Cobotta_Pro_CON:
                 self.jog_joint(**command["params"])
             elif command["command"] == "jog_tcp":
                 self.jog_tcp(**command["params"])
+            elif command["command"] == "demo_put_down_box":
+                self.demo_put_down_box_not_in_rt()
             else:
                 self.logger.warning(f"Unknown command: {command['command']}")
