@@ -27,11 +27,13 @@ pip install -r requirements.txt
 
 **4 プログラムの実行**
 
-MQTTサーバーが`sora2.uclab.jp`で動いていることが前提となる。以下のコマンドでロボット制御コードを実行する。
+MQTTサーバーが`sora2.uclab.jp`で動いていることが前提となる。Linuxでは、以下のコマンドでロボット制御コードを実行する。
 
 ```sh
-python src/main.py --tool-id <tool_id>
+sudo $(which python) src/main.py --tool-id <tool_id>
 ```
+
+`sudo $(which python)`とするのは、リアルタイムスケジューラを利用するための設定である。この手法では、一時的にバイナリ（`python`）にリアルタイムスケジューラを利用するための権限を付与することができ、また仮想環境の`python`を用いる場合でも使用することができる。Windowsでのコマンドは未検証である。
 
 現在アーム先端に付いているツールの番号を指定する。**ツールチェンジ時に他のツールと衝突する恐れがあるため、必ず正しいツールの番号を選ぶこと。**
 

@@ -1,5 +1,6 @@
 # Cobotta Pro の状態をモニタリングする
 
+import logging
 from typing import Any, Dict, List
 from paho.mqtt import client as mqtt
 from denso_robot import DensoRobot
@@ -43,7 +44,7 @@ class Cobotta_Pro_MON:
         pass
 
     def init_robot(self):
-        self.robot = DensoRobot(host=ROBOT_IP)
+        self.robot = DensoRobot(host=ROBOT_IP, logger=self.robot_logger)
         self.robot.start()
         self.robot.clear_error()
         self.find_and_setup_hand()
@@ -75,16 +76,16 @@ class Cobotta_Pro_MON:
             try:
                 os.sched_setscheduler(0, os.SCHED_FIFO, param)
             except OSError:
-                print("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
+                self.logger.warning("Failed to set real-time process scheduler to %u, priority %u" % (os.SCHED_FIFO, rt_app_priority))
             else:
-                print("Process real-time priority set to: %u" % rt_app_priority)
+                self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
     def on_connect(self,client, userdata, flag, rc,proc):
-        print("Connected with result code " + str(rc))  # 接続できた旨表示
+        self.logger.info("MQTT connected with result code: " + str(rc))  # 接続できた旨表示
 
     def on_disconnect(self,client, userdata, rc):
         if  rc != 0:
-            print("Unexpected disconnection.")
+            self.logger.warning("MQTT unexpected disconnection.")
 
     def connect_mqtt(self):
         self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -154,6 +155,15 @@ class Cobotta_Pro_MON:
                 return
             time.sleep(0.008)
 
+    def tool_change_if_needed(self) -> None:
+        try:
+            next_tool_id = self.pose[17].copy()
+            if next_tool_id != 0:
+                self.tool_change(next_tool_id)
+        except Exception as e:
+            self.logger.error("Error during tool change")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
@@ -165,9 +175,7 @@ class Cobotta_Pro_MON:
                 last_error_monitored = now
 
             # ツールチェンジ
-            next_tool_id = self.pose[17].copy()
-            if next_tool_id != 0:
-                self.tool_change(next_tool_id)
+            self.tool_change_if_needed()
 
             # TCP姿勢
             actual_tcp_pose = self.robot.get_current_pose()
@@ -259,6 +267,7 @@ class Cobotta_Pro_MON:
                 with self.monitor_lock:
                     actual_joint_js["topic_type"] = "robot"
                     actual_joint_js["topic"] = MQTT_ROBOT_STATE_TOPIC
+                    actual_joint_js["poses"] = actual_tcp_pose
                     self.monitor_dict.clear()
                     self.monitor_dict.update(actual_joint_js)
                 last = now
@@ -286,7 +295,25 @@ class Cobotta_Pro_MON:
             if t_wait > 0:
                 time.sleep(t_wait)
 
-    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock):
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("MON")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+        self.robot_logger = logging.getLogger("MON-ROBOT")
+        if log_queue is not None:
+            handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            handler = logging.StreamHandler()
+        self.robot_logger.addHandler(handler)
+        self.robot_logger.setLevel(logging.WARNING)
+
+    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
+        self.setup_logger(log_queue)
+        self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
         self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
@@ -299,9 +326,12 @@ class Cobotta_Pro_MON:
         try:
             self.monitor_start()
         except KeyboardInterrupt:
-            print("Stop! Cobotta Pro monitor")
+            self.logger.info("Stop! Cobotta Pro monitor")
             self.robot.disable()
             self.robot.stop()
+        except Exception as e:
+            self.logger.error("Error in monitor")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
 if __name__ == '__main__':
     cp = Cobotta_Pro_MON()

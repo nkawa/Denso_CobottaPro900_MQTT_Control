@@ -15,7 +15,6 @@ sys.path.append(package_dir)
 from bcap_python.bcapclient import BCAPClient
 from bcap_python.orinexception import ORiNException
 
-logger = logging.getLogger(__name__)
 
 # エラーコード
 
@@ -112,7 +111,12 @@ class DensoRobot:
             "TwofgOrientation": 2,
             "TwofgGripMode": 1,
         },
+        logger: Optional[logging.Logger] = None,
     ):
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        else:
+            self.logger = logger
         self.name = name
         self._bcap = None
         self._hRob = 0
@@ -123,8 +127,8 @@ class DensoRobot:
         # -2: 形態が大きく変化するのを抑制する
         # -3: ソフトリミットエラーや可動範囲外エラーにならない
         self._default_fig = default_fig
-        logger.info(("default_servo_mode", self._default_servo_mode))
-        logger.info(("default_fig", self._default_fig))
+        self.logger.info(("default_servo_mode", self._default_servo_mode))
+        self.logger.info(("default_fig", self._default_fig))
         # パラメータ
         self.host = host
         self.port = port
@@ -141,9 +145,9 @@ class DensoRobot:
         self._hand_parameters = hand_parameters
         self._default_grip_width = None
         self._default_release_width = None
-    
+
     def start(self):
-        logger.info("Robot start")
+        self.logger.info("Robot start")
         self._bcap = BCAPClient(self.host, self.port, self.timeout)
         # 400 ms以上通信がないとエラー
         # NOTE: クライアントの数によらず1回実行すれば十分かもしれない
@@ -205,6 +209,10 @@ class DensoRobot:
         その後一部のコマンドが実行できないことに注意。
         気軽にクリアしてしまうと現在のエラーがわからなくなるので注意。
         """
+        if self._hCtrl == 0 or self._bcap is None:
+            self.logger.warning(
+                f"ClearError undone: {self._hCtrl=}, {self._bcap=}")
+            return
         self._bcap.controller_execute(self._hCtrl, "ClearError")
 
     def enable(self) -> bool:
@@ -253,10 +261,10 @@ class DensoRobot:
         return self._default_pose
 
     def move_default_pose(self):
-        logger.info("move_default_pose")
+        self.logger.info("move_default_pose")
         self.move_pose(self._default_pose)
 
-    def move_pose(self, pose, interpolation: int = 1, fig: Optional[int] = None, option: str = ""):
+    def move_pose(self, pose, interpolation: int = 1, fig: Optional[int] = None, path: str = "@E", option: str = ""):
         """
         option: 動作オプション。"NEXT": 非同期実行オプション
         """
@@ -275,13 +283,21 @@ class DensoRobot:
         # 3: MOVE C（円弧補間動作）
         # 4: MOVE S
         # 第3引数
+        # @0は、目標位置に動作指令値が到達したら次のコマンドに移行する。
         # @Eは、目標位置にエンコーダ値（測定位置）が到達するまで待ち停止する。このときの位置は関節角度。
         # @Pは、目標位置の近く（自動設定）にエンコーダ値が到達したら次のコマンドに移行する。
         # @<数字>は、@Pを、目標位置の近くを数字（mm）に設定した上で実行。
         # P(X, Y, Z, Rx, Ry, Rz, Fig)はTCP点の位置、姿勢、形態
-        self._bcap.robot_move(self._hRob, interpolation, f"@E P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
+        self._bcap.robot_move(self._hRob, interpolation, f"{path} P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})", option)
         if prev_servo_mode:
             self.enter_servo_mode()
+
+    def jog_tcp(self, axis: int, direction: float) -> None:
+        poses = self.get_current_pose()
+        poses = np.asarray(poses)
+        poses[axis] += direction
+        # 直接補間動作、形態が大きく変化するのを抑制する、繰り返し動作させるので途中で毎回停止させない
+        self.move_pose(poses.tolist(), interpolation=2, fig=-3, path="@0")
 
     def move_pose_by_diff(self, diff: List[float], option: str = "") -> None:
         current_pose = self.get_current_pose()
@@ -308,7 +324,7 @@ class DensoRobot:
                 break
             time.sleep(check_interval)
             if time.time() - t_start > timeout:
-                logger.info("Timeout before reaching destination.")
+                self.logger.info("Timeout before reaching destination.")
                 done = False
                 break
         # 位置が十分近くなった後念のため少し待つ
@@ -343,6 +359,12 @@ class DensoRobot:
         if prev_servo_mode:
             self.enter_servo_mode()
 
+    def jog_joint(self, joint: int, direction: float) -> None:
+        joints = self.get_current_joint()
+        joints = np.asarray(joints)
+        joints[joint] += direction
+        self.move_joint(joints.tolist())
+
     def move_joint_until_completion(
         self,
         pose: List[float],
@@ -363,7 +385,7 @@ class DensoRobot:
                 break
             time.sleep(check_interval)
             if time.time() - t_start > timeout:
-                logger.info("Timeout before reaching destination.")
+                self.logger.info("Timeout before reaching destination.")
                 done = False
                 break
         # 位置が十分近くなった後念のため少し待つ
@@ -384,37 +406,32 @@ class DensoRobot:
         return cur_pos[:6]
 
     def enter_servo_mode(self):
-        logger.info("enter_servo_mode")
+        self.logger.info("enter_servo_mode")
         self.enter_servo_mode_by_mode(self._default_servo_mode)
 
     def leave_servo_mode(self):
-        logger.info("leave_servo_mode")
+        self.logger.info("leave_servo_mode")
         self.slvChangeMode = 0x000
-        if self._hRob != 0:
-            self._bcap.robot_execute(self._hRob, "slvChangeMode", self.slvChangeMode)
+        if self._hRob == 0 or self._bcap is None:
+            self.logger.warning(
+                f"leave_servo_mode undone: {self._hRob=}, {self._bcap=}")
+            return
+        self._bcap.robot_execute(self._hRob, "slvChangeMode", self.slvChangeMode)
 
     def disable(self):
-        logger.info("disable")
-        if self._hRob != 0:
-            try:
-                self._bcap.robot_execute(self._hRob, "Motor", 0)
-            except ORiNException as e:
-                # NOTE: エラーコード
-                # (プログラム中の値では-2147023170、
-                # エラーコード表のフォーマットでは0x800706be、
-                # エラーコード表にのっていない)が
-                # 出ることがあるが、とりあえず無視しても現状問題ない
-                if e.hresult == -2147023170:
-                    pass
-                # 観測範囲ではこれ以外のエラーは無いがもしあれば
-                # この関数は__del__の中で呼ばれうるので例外で
-                # 中断させてはいけないので表示だけする
-                else:
-                    self.log_error(e)
-            self._bcap.robot_execute(self._hRob, "Givearm")
+        self.logger.info("disable")
+        if self._hRob == 0 or self._bcap is None:
+            self.logger.warning(f"Disable undone: {self._hRob=}, {self._bcap=}")
+            return
+        try:
+            self._bcap.robot_execute(self._hRob, "Motor", 0)
+        except Exception as e:
+            self.logger.warning("Error disabling motor but ignored.")
+            self.logger.warning(f"{self.format_error(e)}")
+        self._bcap.robot_execute(self._hRob, "Givearm")
 
     def stop(self):
-        logger.info("stop")
+        self.logger.info("stop")
         if self._hRob != 0:
             self._bcap.robot_release(self._hRob)
             self._hRob = 0
@@ -446,6 +463,10 @@ class DensoRobot:
         スレーブモード中にあるかどうか。
         非常停止中も実行できる。
         """
+        if self._hRob == 0 or self._bcap is None:
+            self.logger.warning(
+                f"is_in_servo_mode undone: {self._hRob=}, {self._bcap=}")
+            return False
         return self._bcap.robot_execute(self._hRob, "slvGetMode") != 0x000
 
     def enter_servo_mode_by_mode(self, mode: int = 0x001):
@@ -479,7 +500,7 @@ class DensoRobot:
         この時間はコントローラ内部の時間で、ユーザースクリプトの
         時間と少しずれているので使わないほうがよい。
         """
-        logger.debug("move_pose_servo")
+        self.logger.debug("move_pose_servo")
         pose = self._add_fig_if_necessary(pose)
         # 内部でrecvをしない場合は少し高速化する
         # ret = self._move_pose_servo_mode(pose)
@@ -499,7 +520,7 @@ class DensoRobot:
         この時間はコントローラ内部の時間で、ユーザースクリプトの
         時間と少しずれているので使わないほうがよい。
         """
-        logger.debug("move_joint_servo")
+        self.logger.debug("move_joint_servo")
         joint = pose
         joint_all = [0] * 8
         for i, j in enumerate(joint):
@@ -664,7 +685,7 @@ class DensoRobot:
         n_errors = self._bcap.controller_execute(self._hCtrl, "GetCurErrorCount")
         for i in range(n_errors):
             # i = 0が最新のエラー
-            logger.error(self._bcap.controller_execute(self._hCtrl, "GetCurErrorInfo", i))
+            self.logger.error(self._bcap.controller_execute(self._hCtrl, "GetCurErrorInfo", i))
 
     def GetErrorLogAll(self) -> bool:
         """エラーログの情報を取得します"""
@@ -673,43 +694,44 @@ class DensoRobot:
         n_errors = self._bcap.controller_execute(self._hCtrl, "GetErrorLogCount")
         for i in range(n_errors):
             # i = 0が最新のエラー
-            logger.error(self._bcap.controller_execute(self._hCtrl, "GetErrorLog", i))
+            self.logger.error(self._bcap.controller_execute(self._hCtrl, "GetErrorLog", i))
 
     def SceneInfo(self):
         cur_scene = self._bcap.robot_execute(self._hRob, "CurScene")
         cur_sub_scene = self._bcap.robot_execute(self._hRob, "CurSubScene")
         scene_info = self._bcap.robot_execute(self._hRob, "SceneInfo", [cur_scene, cur_sub_scene])
-        logger.info(f"{scene_info=}")
+        self.logger.info(f"{scene_info=}")
 
     def motion_skip(self):
         self._bcap.robot_execute(self._hRob, "MotionSkip", [-1, 0])
 
     def log_error(self, e: Exception):
-        logger.error("Error trace:", exc_info=True)
+        self.logger.error("Error trace:", exc_info=True)
         if type(e) is ORiNException:
-            logger.error("ORiN exception in controller")
+            self.logger.error("ORiN exception in controller")
             if self._hCtrl == 0:
-                logger.error("Controller handler is dead")
+                self.logger.error("Controller handler is dead")
             else:
-                logger.error("Controller handler is alive")
+                self.logger.error("Controller handler is alive")
             hr = e.hresult
-            logger.error(f"Error code: {python_error_to_original_error_str(hr)}")
+            self.logger.error(f"Error code: {python_error_to_original_error_str(hr)}")
             desc = self._bcap.controller_execute(self._hCtrl, "GetErrorDescription", hr)
-            logger.error(f"Error description: {desc}")
+            self.logger.error(f"Error description: {desc}")
 
     def format_error(self, e: Exception):
         s = ""
-        s = s + "\n" + "Error trace:" + traceback.format_exc() + "\n"
+        s = s + "\n" + "Error trace: " + traceback.format_exc() + "\n"
         if type(e) is ORiNException:
-            s += "ORiN exception in controller\n"
-            if self._hCtrl == 0:
-                s += "Controller handler is dead\n"
-            else:
-                s += "Controller handler is alive\n"
+            s += "Error type: ORiN exception in controller\n"
             hr = e.hresult
             s += f"Error code: {python_error_to_original_error_str(hr)}\n"
-            desc = self._bcap.controller_execute(self._hCtrl, "GetErrorDescription", hr)
-            s += f"Error description: {desc}\n"
+            if self._hCtrl == 0 or self._bcap is None:
+                s += ("Cannot get error description from the error code. "
+                      "Refer to teaching pendant or documentation.\n")
+            else:
+                desc = self._bcap.controller_execute(
+                    self._hCtrl, "GetErrorDescription", hr)
+                s += f"Error description: {desc}\n"
         return s
 
     def is_in_range(self, target_pose) -> bool:
@@ -812,7 +834,7 @@ class DensoRobot:
         self.leave_servo_mode()
         self.disable()
         self.stop()
-        logger.info("Robot deleted")
+        self.logger.info("Robot deleted")
 
     def get_current_joint(self):
         # コントローラ内部で一定周期（8ms）に更新された現在位置をJ 型で取得する
