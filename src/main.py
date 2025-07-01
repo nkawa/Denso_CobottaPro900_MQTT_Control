@@ -104,6 +104,11 @@ class MQTTWin:
                              command=self.ConnectMQTT, state="normal")
         self.button_ConnectMQTT.grid(row=row,column=2,padx=2,pady=2,sticky="ew", columnspan=2)
 
+        self.button_DemoPutDownBox = \
+            tk.Button(self.root, text="DemoPutDownBox", padx=5,
+                       command=self.DemoPutDownBox, state="normal")
+        self.button_DemoPutDownBox.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+
         row += 1
 
         self.button_EnableRobot = \
@@ -584,6 +589,11 @@ class MQTTWin:
     def jog_tcp_accel(self, axis, direction, step=1):
         # 加速対応のTCPジョグコールバック
         self.jog_tcp(axis, direction * step)
+
+    def DemoPutDownBox(self):
+        if not self.pm.state_control:
+            return
+        self.pm.demo_put_down_box()
 
     def update_monitor(self):
         # モニタープロセスからの情報

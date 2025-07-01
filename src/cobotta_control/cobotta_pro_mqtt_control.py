@@ -304,6 +304,9 @@ class ProcessManager:
     def jog_tcp(self, axis, direction):
         self._send_command_to_control({"command": "jog_tcp", "params": {"axis": axis, "direction": direction}})
 
+    def demo_put_down_box(self):
+        self._send_command_to_control({"command": "demo_put_down_box"})
+
     def get_current_monitor_log(self):
         with self.monitor_lock:
             monitor_dict = self.monitor_dict.copy()
