@@ -984,10 +984,17 @@ class Cobotta_Pro_CON:
                 [-457.80, -22.66, 531.33, -49.83, 88.46, -139.31],
                 interpolation=1, fig=-3
             )
+            # 作業台にはゆっくりと着地させる
+            self.robot.move_pose(
+                [-457.80, -22.82, 89.16, -49.58, 88.45, -139.07],
+                interpolation=2, fig=-2
+            )
+            self.robot.ext_speed(5)
             self.robot.move_pose(
                 [-457.80, -22.82, 39.16, -49.58, 88.45, -139.07],
                 interpolation=2, fig=-2
             )
+            self.robot.ext_speed(speed_normal)
             # 箱からホルダーを抜く
             self.robot.move_pose(
                 [-457.80, 15.20, 39.16, -49.58, 88.45, -139.07],
