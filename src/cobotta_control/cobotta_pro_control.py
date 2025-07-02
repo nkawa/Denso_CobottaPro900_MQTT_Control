@@ -647,7 +647,7 @@ class Cobotta_Pro_CON:
             # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
             success_stop = self.control_loop_w_recover_automatic()
             # 停止フラグが成功の場合は、ユーザーが要求した場合のみありうる
-            next_tool_id = self.pose[17]
+            next_tool_id = self.pose[17].copy()
             if success_stop:
                 # ツールチェンジが要求された場合
                 if next_tool_id != 0:
