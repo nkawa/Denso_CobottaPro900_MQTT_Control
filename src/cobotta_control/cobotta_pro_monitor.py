@@ -205,10 +205,8 @@ class Cobotta_Pro_MON:
                     status_put_down_box = False
             if status_tool_change is not None:
                 actual_joint_js["tool_change"] = status_tool_change
-                self.logger.info(actual_joint_js)
             if status_put_down_box is not None:
                 actual_joint_js["put_down_box"] = status_put_down_box
-                self.logger.info(actual_joint_js)
 
             # TCP姿勢
             actual_tcp_pose = self.robot.get_current_pose()
