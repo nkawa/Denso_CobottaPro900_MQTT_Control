@@ -242,7 +242,7 @@ class DensoRobot:
         self._bcap.robot_execute(self._hRob, "Motor", 1)
         return True
     
-    def enable_robot(self) -> None:
+    def enable_robot(self, ext_speed: int = 20) -> None:
         # STO状態（セーフティ状態）を解除する
         self.manual_reset()
         # ロボットの軸の制御権
@@ -250,7 +250,7 @@ class DensoRobot:
         self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
         # 外部速度(%)の設定
         # スレーブモードでは外部速度は反映されない
-        self._bcap.robot_execute(self._hRob, "ExtSpeed", [20])
+        self._bcap.robot_execute(self._hRob, "ExtSpeed", [ext_speed])
         self._bcap.robot_execute(self._hRob, "Motor", 1)
         return True
 

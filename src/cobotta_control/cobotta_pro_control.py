@@ -86,7 +86,7 @@ abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
 # 外部速度。単位は%
-speed_normal = 10
+speed_normal = 20
 speed_tool_change = 2
 # 目標値が状態値よりこの制限より大きく乖離した場合はロボットを停止させる
 # 設定値は典型的なVRコントローラの動きから決定した
@@ -526,7 +526,7 @@ class Cobotta_Pro_CON:
 
     def enable(self) -> None:
         try:
-            self.robot.enable_robot()
+            self.robot.enable_robot(ext_speed=speed_normal)
         except Exception as e:
             self.logger.error("Error enabling robot")
             self.logger.error(f"{self.robot.format_error(e)}")
