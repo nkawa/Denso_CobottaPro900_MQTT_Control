@@ -224,7 +224,14 @@ class Cobotta_Pro_MON:
                    force = None
 
             # モータがONか
-            enabled = self.robot.is_enabled()
+            try:
+                enabled = self.robot.is_enabled()
+            except Exception as e:
+                self.logger.warning(
+                    "Somehow failed in checking if robot is enabled. "
+                    "Enabled value may be incorrect.")
+                self.logger.warning(f"{self.robot.format_error(e)}")
+                enabled = False
             actual_joint_js["enabled"] = enabled
 
             error = {}
