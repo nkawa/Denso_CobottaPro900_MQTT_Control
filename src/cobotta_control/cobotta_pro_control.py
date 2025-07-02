@@ -716,7 +716,7 @@ class Cobotta_Pro_CON:
         next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
         # ツールチェンジはワークから十分離れた場所で行うことを仮定
         current_joint = self.robot.get_current_joint()
-        self.robot.move_pose(tool_base, fig=-3)
+        self.robot.move_joint(self.tidy_joint)
         # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
         self.robot.SetAreaEnabled(0, False)
         # アームの先端の位置で制御する（現在のツールに依存しない）
