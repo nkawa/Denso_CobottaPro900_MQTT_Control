@@ -155,6 +155,22 @@ class Cobotta_Pro_MON:
                 return
             time.sleep(0.008)
 
+    def demo_put_down_box(self):
+        # 棚の上の箱を作業台に置くデモ
+        # NOTE: 制御の待ち合わせをしているだけで、
+        # それ以外にモニタ側で特別な処理は行わない
+        # 待ち合わせるのではなくて、制御が完了次第
+        # 制御プロセスから完了を受け取る仕組みにすれば
+        # デモ中もモニタリングできる
+        while True:
+            if self.pose[22] == 1:
+                break
+            time.sleep(0.008)
+        while True:
+            if self.pose[22] == 0:
+                return
+            time.sleep(0.008)  
+
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
@@ -166,9 +182,11 @@ class Cobotta_Pro_MON:
                 last_error_monitored = now
 
             actual_joint_js = {}
-            # ツールチェンジ
+            # ツールチェンジまたは棚の上の箱を作業台に置くデモの実行
             status_tool_change = None
+            status_put_down_box = None
             next_tool_id = self.pose[17].copy()
+            put_down_box = self.pose[21].copy()
             if next_tool_id != 0:
                 try:
                     self.tool_change(next_tool_id)
@@ -177,8 +195,19 @@ class Cobotta_Pro_MON:
                     self.logger.error("Error during tool change")
                     self.logger.error(f"{self.robot.format_error(e)}")
                     status_tool_change = False
+            elif put_down_box != 0:
+                try:
+                    self.demo_put_down_box()
+                    status_put_down_box = True
+                except Exception as e:
+                    self.logger.error("Error during put down box demo")
+                    self.logger.error(f"{self.robot.format_error(e)}")
+                    status_put_down_box = False
             if status_tool_change is not None:
                 actual_joint_js["tool_change"] = status_tool_change
+                self.logger.info(actual_joint_js)
+            if status_put_down_box is not None:
+                actual_joint_js["put_down_box"] = status_put_down_box
                 self.logger.info(actual_joint_js)
 
             # TCP姿勢

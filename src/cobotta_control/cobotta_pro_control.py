@@ -648,6 +648,7 @@ class Cobotta_Pro_CON:
             success_stop = self.control_loop_w_recover_automatic()
             # 停止フラグが成功の場合は、ユーザーが要求した場合のみありうる
             next_tool_id = self.pose[17].copy()
+            put_down_box = self.pose[21].copy()
             if success_stop:
                 # ツールチェンジが要求された場合
                 if next_tool_id != 0:
@@ -667,6 +668,21 @@ class Cobotta_Pro_CON:
                         self.pose[18] = 0
                         self.pose[17] = 0
                         break
+                # 棚の上の箱を置くことが要求された場合
+                elif put_down_box != 0:
+                    self.logger.info("User required put down box")
+                    # 成功しても失敗してもループを継続する (ツールを変えることによる
+                    # 予測できないエラーは起こらないため)
+                    try:
+                        self.pose[22] = 0
+                        self.demo_put_down_box()
+                        self.pose[22] = 0
+                        self.pose[21] = 0
+                    except Exception as e:
+                        self.logger.error("Error during demo put down box")
+                        self.logger.error(f"{self.robot.format_error(e)}")
+                        self.pose[22] = 0
+                        self.pose[21] = 0
                 # 単なる停止が要求された場合は、ループを抜ける
                 else:
                     break
@@ -879,6 +895,36 @@ class Cobotta_Pro_CON:
         この関数を呼ぶ前に、ロボットの先端のホルダーを棚の上の箱に引っ掛けておく
         """
         try:
+            self.pose[22] = 1
+            if self.tool_id != 4:
+                raise ValueError("Tool is not the box holder")
+
+            use_pre_automatic_move = True
+            if use_pre_automatic_move:
+                # 現状はホルダーへのツールチェンジ後の箱の少し手前の位置から、
+                # 箱の位置へと自動で移動するようにしている
+                # 本当は手動で移動させたほうが想定に近いが、
+                # 手動またはTCP制御で移動しようとすると、関節2より関節3が先に動き、
+                # ひじ特異姿勢に近くなるため、このようにしている
+
+                # ホルダーへのツールチェンジ後の箱の少し手前の位置
+                # ツールチェンジで移動済みだがもう一度同じ場所にいることを保証させる
+                # pose = [-302.92, -560.30, 830.96, -49.35, 88.43, -138.85]
+                self.robot.move_joint(
+                    [-110.01, 11.00, 48.76, -142.45, -35.12, 147.03]
+                )
+
+                # ここから箱の位置へと自動で移動する
+                # TCP制御 (これではひじ特異姿勢に近くなる)
+                # self.robot.move_pose(
+                #     [-302.92, -660.89, 830.96, -49.35, 88.43, -138.84],
+                #     interpolation=2, fig=-2
+                # )
+                # かわりに関節制御する (衝突しないことを確認済み)
+                self.robot.move_joint(
+                    [-105.27, 22.47, 35.35, -151.32, -34.53, 154.84]
+                )
+
             # この関数を呼ぶ前にホルダーを箱に引っ掛けておく
             # 棚の上の箱はおおよそこの位置にあることを前提とする
             target = [-302.92, -660.89, 830.96, -49.35, 88.43, -138.84]
@@ -957,22 +1003,15 @@ class Cobotta_Pro_CON:
                 [-457.81, 15.20, 459.67, -178.82, 0.04, 90.50],
                 interpolation=1, fig=-3
             )
+            self.pose[22] = 0
         except Exception as e:
             self.logger.error("Error during demo put down box")
             self.logger.error(f"{self.robot.format_error(e)}")
+            self.pose[22] = 0
 
     def demo_put_down_box_not_in_rt(self) -> None:
         """デモ用に棚の上の箱を作業台に下ろす動き (リアルタイム制御ではない)"""
         try:
-            if self.tool_id != 4:
-                raise ValueError("Tool is not the box holder")
-            # self.robot.move_pose(
-            #     [-302.92, -660.89, 830.96, -49.35, 88.43, -138.84],
-            #     interpolation=1, fig=-3
-            # )
-            self.robot.move_joint(
-                [-105.27, 22.47, 35.35, -151.32, -34.53, 154.84]
-            )
             self.demo_put_down_box()
         except Exception as e:
             self.logger.error("Error during demo put down box not in rt")

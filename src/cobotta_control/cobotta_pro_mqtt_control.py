@@ -112,6 +112,12 @@ class Cobotta_Pro_MQTT:
                     self.pose[16] = 1
                     self.pose[17] = tool
             
+            if "put_down_box" in js:
+                if self.pose[21] == 0:
+                    if js["put_down_box"]:
+                        self.pose[16] = 1
+                        self.pose[21] = 1
+
             self.pose[20] = 1
             with self.mqtt_control_lock:
                 js["topic_type"] = "control"
@@ -211,6 +217,8 @@ class ProcessManager:
         # [18]: tool_changeでの制御プロセスと状態プロセスの同期用
         # [19]: 制御開始後の状態値の受信フラグ
         # [20]: 制御開始後の目標値の受信フラグ
+        # [21]: 棚の上の箱を作業台に置くデモの実行フラグ
+        # [22]: put_down_boxでの制御プロセスと状態プロセスの同期用
         self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
