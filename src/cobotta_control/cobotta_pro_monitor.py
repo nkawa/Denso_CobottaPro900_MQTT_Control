@@ -155,15 +155,6 @@ class Cobotta_Pro_MON:
                 return
             time.sleep(0.008)
 
-    def tool_change_if_needed(self) -> None:
-        try:
-            next_tool_id = self.pose[17].copy()
-            if next_tool_id != 0:
-                self.tool_change(next_tool_id)
-        except Exception as e:
-            self.logger.error("Error during tool change")
-            self.logger.error(f"{self.robot.format_error(e)}")
-
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
@@ -174,8 +165,21 @@ class Cobotta_Pro_MON:
             if last_error_monitored == 0:
                 last_error_monitored = now
 
+            actual_joint_js = {}
             # ツールチェンジ
-            self.tool_change_if_needed()
+            status_tool_change = None
+            next_tool_id = self.pose[17].copy()
+            if next_tool_id != 0:
+                try:
+                    self.tool_change(next_tool_id)
+                    status_tool_change = True
+                except Exception as e:
+                    self.logger.error("Error during tool change")
+                    self.logger.error(f"{self.robot.format_error(e)}")
+                    status_tool_change = False
+            if status_tool_change is not None:
+                actual_joint_js["tool_change"] = status_tool_change
+                self.logger.info(actual_joint_js)
 
             # TCP姿勢
             actual_tcp_pose = self.robot.get_current_pose()
@@ -183,11 +187,11 @@ class Cobotta_Pro_MON:
             actual_joint = self.robot.get_current_joint()
             if MQTT_FORMAT == 'UR-realtime-control-MQTT':        
                 joints = ['j1','j2','j3','j4','j5','j6']
-                actual_joint_js = {
-                    k: v for k, v in zip(joints, actual_joint)}
+                actual_joint_js.update({
+                    k: v for k, v in zip(joints, actual_joint)})
             elif MQTT_FORMAT == 'Denso-Cobotta-Pro-Control-IK':
                 # 7要素送る必要があるのでダミーの[0]を追加
-                actual_joint_js = {"joints": list(actual_joint) + [0]}
+                actual_joint_js.update({"joints": list(actual_joint) + [0]})
                 # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
                 # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
                 # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
