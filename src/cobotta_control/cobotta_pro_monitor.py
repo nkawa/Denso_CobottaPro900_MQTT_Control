@@ -99,81 +99,11 @@ class Cobotta_Pro_MON:
         return [tool_info for tool_info in tool_infos
                 if tool_info["id"] == tool_id][0]
 
-    def tool_change(self, next_tool_id: int) -> None:
-        while True:
-            if self.pose[18] == 1:
-                break
-            time.sleep(0.008)  
-        self.pose[18] = 2
-        while True:
-            if self.pose[18] == 0:
-                return
-            elif self.pose[18] == 3:
-                break
-            time.sleep(0.008)
-        tool_info = self.get_tool_info(tool_infos, self.tool_id)
-        next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
-        # 現在のツールとの接続を切る
-        # 現在ツールが付いていないとき
-        if tool_info["id"] == -1:
-            assert next_tool_info["id"] != -1
-        # 現在ツールが付いているとき
-        else:
-            self.hand.disconnect()
-        self.pose[18] = 4
-        while True:
-            if self.pose[18] == 5:
-                break
-            time.sleep(0.008)          
-        # 現在ツールが付いていないとき
-        if tool_info["id"] == -1:
-            assert next_tool_info["id"] != -1
-            name = next_tool_info["name"]
-            hand = tool_classes[name]()
-            connected = hand.connect_and_setup()
-            # NOTE: 接続できなければ止めたほうが良いと考える
-            if not connected:
-                raise ValueError("Failed to connect to any hand")
-            self.pose[18] = 6
-        # 現在ツールが付いているとき
-        else:
-            if next_tool_info["id"] == -1:
-                self.pose[18] = 6
-            else:
-                name = next_tool_info["name"]
-                hand = tool_classes[name]()
-                connected = hand.connect_and_setup()
-                # NOTE: 接続できなければ止めたほうが良いと考える
-                if not connected:
-                    raise ValueError("Failed to connect to any hand")
-                self.pose[18] = 6
-        self.hand_name = name
-        self.hand = hand
-        self.tool_id = next_tool_id
-        while True:
-            if self.pose[18] == 0:
-                return
-            time.sleep(0.008)
-
-    def demo_put_down_box(self):
-        # 棚の上の箱を作業台に置くデモ
-        # NOTE: 制御の待ち合わせをしているだけで、
-        # それ以外にモニタ側で特別な処理は行わない
-        # 待ち合わせるのではなくて、制御が完了次第
-        # 制御プロセスから完了を受け取る仕組みにすれば
-        # デモ中もモニタリングできる
-        while True:
-            if self.pose[22] == 1:
-                break
-            time.sleep(0.008)
-        while True:
-            if self.pose[22] == 0:
-                return
-            time.sleep(0.008)  
-
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
+        is_in_tool_change = False
+        is_put_down_box = False
         while True:
             now = time.time()
             if last == 0:
@@ -182,29 +112,57 @@ class Cobotta_Pro_MON:
                 last_error_monitored = now
 
             actual_joint_js = {}
-            # ツールチェンジまたは棚の上の箱を作業台に置くデモの実行
+
+            # ツール番号
+            tool_id = int(self.pose[23].copy())
+            # 起動時（共有メモリが初期化されている）のみ初期値を使用
+            if tool_id == 0:
+                tool_id = self.tool_id
+            # それ以外は制御プロセスからの値を使用
+            else:
+                self.tool_id = tool_id
+
+            # ツールチェンジ
             status_tool_change = None
-            status_put_down_box = None
-            next_tool_id = self.pose[17].copy()
-            put_down_box = self.pose[21].copy()
+            next_tool_id = int(self.pose[17].copy())
             if next_tool_id != 0:
-                try:
-                    self.tool_change(next_tool_id)
-                    status_tool_change = True
-                except Exception as e:
-                    self.logger.error("Error during tool change")
-                    self.logger.error(f"{self.robot.format_error(e)}")
-                    status_tool_change = False
-            elif put_down_box != 0:
-                try:
-                    self.demo_put_down_box()
-                    status_put_down_box = True
-                except Exception as e:
-                    self.logger.error("Error during put down box demo")
-                    self.logger.error(f"{self.robot.format_error(e)}")
-                    status_put_down_box = False
+                if not is_in_tool_change:
+                    is_in_tool_change = True
+                    self.logger.info("Tool change started")
+            else:
+                if is_in_tool_change:
+                    is_in_tool_change = False
+                    status_tool_change = bool(self.pose[18] == 1)
+                    self.logger.info("Tool change finished")
             if status_tool_change is not None:
+                self.logger.info(f"Tool change status: {status_tool_change}")
+                # 終了した場合のみキーを追加
                 actual_joint_js["tool_change"] = status_tool_change
+                # 成功した場合のみ接続
+                if status_tool_change:
+                    next_tool_info = self.get_tool_info(tool_infos, tool_id)
+                    name = next_tool_info["name"]
+                    hand = tool_classes[name]()
+                    connected = hand.connect_and_setup()
+                    # NOTE: 接続できなければ止めたほうが良いと考える
+                    # TODO: 接続できなければハンドは動かせない状態で継続するようにする
+                    # TODO: ツールチェンジ中に一貫性をもたせる
+                    if not connected:
+                        raise ValueError("Failed to connect to any hand")
+                    self.hand_name = name
+                    self.hand = hand
+
+            # 棚の上の箱を作業台に置くデモ
+            status_put_down_box = None
+            put_down_box = self.pose[21].copy()
+            if put_down_box != 0:
+                if not is_put_down_box:
+                    is_put_down_box = True
+            else:
+                if is_put_down_box:
+                    is_put_down_box = False
+                    status_put_down_box = bool(self.pose[22] == 1)
+            # 終了した場合のみキーを追加
             if status_put_down_box is not None:
                 actual_joint_js["put_down_box"] = status_put_down_box
 
@@ -251,31 +209,35 @@ class Cobotta_Pro_MON:
             if forces is not None:
                 actual_joint_js["forces"] = forces
 
-            tool_id = self.tool_id
             actual_joint_js["tool_id"] = int(tool_id)
-            # ツール依存の部分はまとめるべき
-            if tool_id == -1:
+            # ツールチェンジ中はツールのセンサは使用しない
+            if is_in_tool_change:
                 width = None
                 force = None
             else:
-                if self.hand_name == "onrobot_2fg7":
-                    try:
-                        width = self.hand.get_ext_width()
-                        force = self.hand.get_force()
-                    except Exception as e:
-                        self.logger.error("Error in onrobot_2fg7 hand: ")
-                        self.logger.error(f"{self.robot.format_error(e)}")
-                        width = None
-                        force = None
-                elif self.hand_name == "onrobot_vgc10":
+                # ツール依存の部分はまとめるべき
+                if tool_id == -1:
                     width = None
                     force = None
-                elif self.hand_name == "cutter":
-                   width = None
-                   force = None
-                elif self.hand_name == "plate_holder":
-                   width = None
-                   force = None
+                else:
+                    if self.hand_name == "onrobot_2fg7":
+                        try:
+                            width = self.hand.get_ext_width()
+                            force = self.hand.get_force()
+                        except Exception as e:
+                            self.logger.error("Error in onrobot_2fg7 hand: ")
+                            self.logger.error(f"{self.robot.format_error(e)}")
+                            width = None
+                            force = None
+                    elif self.hand_name == "onrobot_vgc10":
+                        width = None
+                        force = None
+                    elif self.hand_name == "cutter":
+                        width = None
+                        force = None
+                    elif self.hand_name == "plate_holder":
+                        width = None
+                        force = None
 
             # モータがONか
             try:
@@ -322,7 +284,7 @@ class Cobotta_Pro_MON:
             self.pose[:len(actual_joint)] = actual_joint
             self.pose[19] = 1
 
-            if now-last > 0.3:
+            if now-last > 0.3 or "tool_change" in actual_joint_js or "put_down_box" in actual_joint_js:
                 jss = json.dumps(actual_joint_js)
                 self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
                 with self.monitor_lock:

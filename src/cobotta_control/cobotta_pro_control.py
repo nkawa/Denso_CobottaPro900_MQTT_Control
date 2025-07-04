@@ -132,6 +132,7 @@ class Cobotta_Pro_CON:
         self.hand_name = name
         self.hand = hand
         self.tool_id = tool_id
+        self.pose[23] = tool_id
         if tool_id != -1:
             self.robot.SetToolDef(
                 tool_info["id_in_robot"], tool_info["tool_def"])
@@ -664,15 +665,14 @@ class Cobotta_Pro_CON:
                     # ツールチェンジに成功した場合は、ループを継続し
                     # 失敗した場合は、ループを抜ける
                     try:
-                        self.pose[18] = 0
                         self.tool_change(next_tool_id)
-                        self.pose[18] = 0
+                        self.pose[18] = 1
                         self.pose[17] = 0
                         self.logger.info("Tool change succeeded")
                     except Exception as e:
                         self.logger.error("Error during tool change")
                         self.logger.error(f"{self.robot.format_error(e)}")
-                        self.pose[18] = 0
+                        self.pose[18] = 2
                         self.pose[17] = 0
                         break
                 # 棚の上の箱を置くことが要求された場合
@@ -680,16 +680,7 @@ class Cobotta_Pro_CON:
                     self.logger.info("User required put down box")
                     # 成功しても失敗してもループを継続する (ツールを変えることによる
                     # 予測できないエラーは起こらないため)
-                    try:
-                        self.pose[22] = 0
-                        self.demo_put_down_box()
-                        self.pose[22] = 0
-                        self.pose[21] = 0
-                    except Exception as e:
-                        self.logger.error("Error during demo put down box")
-                        self.logger.error(f"{self.robot.format_error(e)}")
-                        self.pose[22] = 0
-                        self.pose[21] = 0
+                    self.demo_put_down_box()
                 # 単なる停止が要求された場合は、ループを抜ける
                 else:
                     break
@@ -699,7 +690,13 @@ class Cobotta_Pro_CON:
                 # ツールチェンジが要求された場合
                 if next_tool_id != 0:
                     # 要求コマンドのみリセット
+                    self.pose[18] = 2
                     self.pose[17] = 0
+                # 棚の上の箱を置くことが要求された場合
+                elif put_down_box != 0:
+                    # 要求コマンドのみリセット
+                    self.pose[22] = 2
+                    self.pose[21] = 0
                 # ループを抜ける
                 break
         self.pose[15] = 0
@@ -710,14 +707,8 @@ class Cobotta_Pro_CON:
                 if tool_info["id"] == tool_id][0]
 
     def tool_change(self, next_tool_id: int) -> None:
-        self.pose[18] = 1
-        while True:
-            if self.pose[18] == 2:
-                break
-            time.sleep(0.008)
         if next_tool_id == self.tool_id:
             self.logger.info("Selected tool is current tool.")
-            self.pose[18] = 0
             return
         tool_info = self.get_tool_info(tool_infos, self.tool_id)
         next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
@@ -736,11 +727,6 @@ class Cobotta_Pro_CON:
         # 現在ツールが付いているとき
         else:
             self.hand.disconnect()
-        self.pose[18] = 3
-        while True:
-            if self.pose[18] == 4:
-                break
-            time.sleep(0.008)
 
         # 現在ツールが付いていないとき
         if tool_info["id"] == -1:
@@ -758,11 +744,10 @@ class Cobotta_Pro_CON:
             # NOTE: 接続できなければ止めたほうが良いと考える
             if not connected:
                 raise ValueError(f"Failed to connect to hand: {name}")
-            self.pose[18] = 5
-            while True:
-                if self.pose[18] == 6:
-                    break
-                time.sleep(0.008)
+            self.hand_name = name
+            self.hand = hand
+            self.tool_id = next_tool_id
+            self.pose[23] = next_tool_id
             self.robot.ext_speed(speed_normal)
             self.robot.move_pose(wps["exit_path_1"])
             self.robot.move_pose(wps["exit_path_2"])
@@ -777,11 +762,6 @@ class Cobotta_Pro_CON:
             time.sleep(1)
             self.robot.move_pose(wps["disengaged"])
             if next_tool_info["id"] == -1:
-                self.pose[18] = 5
-                while True:
-                    if self.pose[18] == 6:
-                        break
-                    time.sleep(0.008)
                 self.robot.ext_speed(speed_normal)
                 self.robot.move_pose(wps["enter_path"])
             elif tool_info["holder_region"] == next_tool_info["holder_region"]:
@@ -798,11 +778,10 @@ class Cobotta_Pro_CON:
                 # NOTE: 接続できなければ止めたほうが良いと考える
                 if not connected:
                     raise ValueError(f"Failed to connect to hand: {name}")
-                self.pose[18] = 5
-                while True:
-                    if self.pose[18] == 6:
-                        break
-                    time.sleep(0.008)
+                self.hand_name = name
+                self.hand = hand
+                self.tool_id = next_tool_id
+                self.pose[23] = next_tool_id
                 self.robot.ext_speed(speed_normal)
             elif tool_info["holder_region"] != next_tool_info["holder_region"]:
                 self.robot.ext_speed(speed_normal)
@@ -821,11 +800,10 @@ class Cobotta_Pro_CON:
                 # NOTE: 接続できなければ止めたほうが良いと考える
                 if not connected:
                     raise ValueError(f"Failed to connect to hand: {name}")
-                self.pose[18] = 5
-                while True:
-                    if self.pose[18] == 6:
-                        break
-                    time.sleep(0.008)
+                self.hand_name = name
+                self.hand = hand
+                self.tool_id = next_tool_id
+                self.pose[23] = next_tool_id
                 self.robot.ext_speed(speed_normal)
             self.robot.move_pose(wps["exit_path_1"])
             self.robot.move_pose(wps["exit_path_2"])
@@ -836,7 +814,9 @@ class Cobotta_Pro_CON:
             self.robot.SetToolDef(
                 next_tool_info["id_in_robot"], next_tool_info["tool_def"])
         self.robot.set_tool(next_tool_info["id_in_robot"])
-        self.robot.move_pose(tool_base, fig=-3)
+        self.robot.move_joint(self.tidy_joint)
+        # エリア機能を有効にする
+        self.robot.SetAreaEnabled(0, True)
         if next_tool_info["id"] == 4:
             # tool_baseから箱の手前まで直接行くと台にぶつかりそうなので少し手前に移動
             # pose = [-302.96, -400.32, 831.60, -46.90, 88.37, -136.46]
@@ -856,12 +836,6 @@ class Cobotta_Pro_CON:
             # その限りではないが、関節空間での補間に悪影響があるかもしれないので
             # 関節角度を前後で合わせることを推奨
             self.robot.move_joint(current_joint)
-        # エリア機能を有効にする
-        self.robot.SetAreaEnabled(0, True)
-        self.hand_name = name
-        self.hand = hand
-        self.tool_id = next_tool_id
-        self.pose[18] = 0
         return
 
     def tool_change_not_in_rt(self) -> None:
@@ -869,13 +843,13 @@ class Cobotta_Pro_CON:
             next_tool_id = self.pose[17]
             if next_tool_id != 0:
                 try:
-                    self.pose[18] = 0
                     self.tool_change(next_tool_id)
+                    self.pose[18] = 1
                 except Exception as e:
                     self.logger.error("Error during tool change")
                     self.logger.error(f"{self.robot.format_error(e)}")
+                    self.pose[18] = 2
                 finally:
-                    self.pose[18] = 0
                     self.pose[17] = 0
                     break
 
@@ -902,7 +876,6 @@ class Cobotta_Pro_CON:
         この関数を呼ぶ前に、ロボットの先端のホルダーを棚の上の箱に引っ掛けておく
         """
         try:
-            self.pose[22] = 1
             if self.tool_id != 4:
                 raise ValueError("Tool is not the box holder")
 
@@ -1017,19 +990,13 @@ class Cobotta_Pro_CON:
                 [-457.81, 15.20, 459.67, -178.82, 0.04, 90.50],
                 interpolation=1, fig=-3
             )
-            self.pose[22] = 0
+            self.pose[22] = 1
         except Exception as e:
             self.logger.error("Error during demo put down box")
             self.logger.error(f"{self.robot.format_error(e)}")
-            self.pose[22] = 0
-
-    def demo_put_down_box_not_in_rt(self) -> None:
-        """デモ用に棚の上の箱を作業台に下ろす動き (リアルタイム制御ではない)"""
-        try:
-            self.demo_put_down_box()
-        except Exception as e:
-            self.logger.error("Error during demo put down box not in rt")
-            self.logger.error(f"{self.robot.format_error(e)}")
+            self.pose[22] = 2
+        finally:
+            self.pose[21] = 0
 
     def setup_logger(self, log_queue):
         self.logger = logging.getLogger("CTRL")
@@ -1079,6 +1046,6 @@ class Cobotta_Pro_CON:
             elif command["command"] == "jog_tcp":
                 self.jog_tcp(**command["params"])
             elif command["command"] == "demo_put_down_box":
-                self.demo_put_down_box_not_in_rt()
+                self.demo_put_down_box()
             else:
                 self.logger.warning(f"Unknown command: {command['command']}")
