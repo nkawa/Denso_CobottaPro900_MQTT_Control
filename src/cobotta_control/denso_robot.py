@@ -242,7 +242,7 @@ class DensoRobot:
         self._bcap.robot_execute(self._hRob, "Motor", 1)
         return True
     
-    def enable_robot(self) -> None:
+    def enable_robot(self, ext_speed: int = 20) -> None:
         # STO状態（セーフティ状態）を解除する
         self.manual_reset()
         # ロボットの軸の制御権
@@ -250,7 +250,7 @@ class DensoRobot:
         self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
         # 外部速度(%)の設定
         # スレーブモードでは外部速度は反映されない
-        self._bcap.robot_execute(self._hRob, "ExtSpeed", [20])
+        self._bcap.robot_execute(self._hRob, "ExtSpeed", [ext_speed])
         self._bcap.robot_execute(self._hRob, "Motor", 1)
         return True
 
@@ -718,21 +718,30 @@ class DensoRobot:
             desc = self._bcap.controller_execute(self._hCtrl, "GetErrorDescription", hr)
             self.logger.error(f"Error description: {desc}")
 
-    def format_error(self, e: Exception):
-        s = ""
-        s = s + "\n" + "Error trace: " + traceback.format_exc() + "\n"
-        if type(e) is ORiNException:
-            s += "Error type: ORiN exception in controller\n"
-            hr = e.hresult
-            s += f"Error code: {python_error_to_original_error_str(hr)}\n"
-            if self._hCtrl == 0 or self._bcap is None:
-                s += ("Cannot get error description from the error code. "
-                      "Refer to teaching pendant or documentation.\n")
-            else:
-                desc = self._bcap.controller_execute(
-                    self._hCtrl, "GetErrorDescription", hr)
-                s += f"Error description: {desc}\n"
-        return s
+    def format_error(self, e: Exception) -> str:
+        try:
+            s = "\n"
+            s = s + "Error trace: " + traceback.format_exc() + "\n"
+            if type(e) is ORiNException:
+                s += "Error type: ORiN exception in controller\n"
+                hr = e.hresult
+                s += f"Error code: {python_error_to_original_error_str(hr)}\n"
+                if self._hCtrl == 0 or self._bcap is None:
+                    s += ("Cannot get error description from the error code. "
+                        "Refer to teaching pendant or documentation.\n")
+                else:
+                    desc = self._bcap.controller_execute(
+                        self._hCtrl, "GetErrorDescription", hr)
+                    s += f"Error description: {desc}\n"
+            return s
+        # エラーフォーマット時に例外を起こさないようにする
+        # 例えばGetErrorDescriptionはタイムアウトの場合に例外を投げることを確認している
+        # のでそれらをキャッチしておく
+        except Exception as e:
+            s += "Error in format error; during handling of the above exception, " \
+                 "another exception occurred:\n\n"
+            s = s + "Error trace: " + traceback.format_exc() + "\n"
+            return s
 
     def is_in_range(self, target_pose) -> bool:
         # 返り値は、
