@@ -463,6 +463,9 @@ class Cobotta_Pro_CON:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
                     if not self.robot.is_error_level_0(e):
+                        self.logger.error(
+                            "Error in move_joint_servo: ")
+                        self.logger.error(f"{self.robot.format_error(e)}")
                         return False
 
                 if self.pose[13] == 1:

@@ -209,30 +209,47 @@ class Cobotta_Pro_MON:
                 actual_joint_js["put_down_box"] = status_put_down_box
 
             # TCP姿勢
-            actual_tcp_pose = self.robot.get_current_pose()
+            try:
+                actual_tcp_pose = self.robot.get_current_pose()
+            except Exception as e:
+                self.logger.error("Error in get_current_pose: ")
+                self.logger.error(f"{self.robot.format_error(e)}")
+                actual_tcp_pose = None
             # 関節
-            actual_joint = self.robot.get_current_joint()
-            if MQTT_FORMAT == 'UR-realtime-control-MQTT':        
-                joints = ['j1','j2','j3','j4','j5','j6']
-                actual_joint_js.update({
-                    k: v for k, v in zip(joints, actual_joint)})
-            elif MQTT_FORMAT == 'Denso-Cobotta-Pro-Control-IK':
-                # 7要素送る必要があるのでダミーの[0]を追加
-                actual_joint_js.update({"joints": list(actual_joint) + [0]})
-                # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-                # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
-                # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
-                # NOTE(20250604): 一時的な対応。VR側で修正され次第削除。
-                # actual_joint_js["joints"][0] = actual_joint_js["joints"][0] + 180
-            else:
-                raise ValueError
+            try:
+                actual_joint = self.robot.get_current_joint()
+            except Exception as e:
+                self.logger.error("Error in get_current_joint: ")
+                self.logger.error(f"{self.robot.format_error(e)}")
+                actual_joint = None
+            if actual_joint is not None:
+                if MQTT_FORMAT == 'UR-realtime-control-MQTT':        
+                    joints = ['j1','j2','j3','j4','j5','j6']
+                    actual_joint_js.update({
+                        k: v for k, v in zip(joints, actual_joint)})
+                elif MQTT_FORMAT == 'Denso-Cobotta-Pro-Control-IK':
+                    # 7要素送る必要があるのでダミーの[0]を追加
+                    actual_joint_js.update({"joints": list(actual_joint) + [0]})
+                    # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
+                    # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
+                    # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
+                    # NOTE(20250604): 一時的な対応。VR側で修正され次第削除。
+                    # actual_joint_js["joints"][0] = actual_joint_js["joints"][0] + 180
+                else:
+                    raise ValueError
             
             # 型: 整数、単位: ms
             time_ms = int(now * 1000)
             actual_joint_js["time"] = time_ms
             # [X, Y, Z, RX, RY, RZ]: センサ値の力[N]とモーメント[Nm]
-            forces = self.robot.ForceValue()
-            actual_joint_js["forces"] = forces
+            try:
+                forces = self.robot.ForceValue()
+            except Exception as e:
+                self.logger.error("Error in ForceValue: ")
+                self.logger.error(f"{self.robot.format_error(e)}")
+                forces = None
+            if forces is not None:
+                actual_joint_js["forces"] = forces
 
             tool_id = self.tool_id
             actual_joint_js["tool_id"] = int(tool_id)
@@ -242,8 +259,14 @@ class Cobotta_Pro_MON:
                 force = None
             else:
                 if self.hand_name == "onrobot_2fg7":
-                   width = self.hand.get_ext_width()
-                   force = self.hand.get_force()
+                    try:
+                        width = self.hand.get_ext_width()
+                        force = self.hand.get_force()
+                    except Exception as e:
+                        self.logger.error("Error in onrobot_2fg7 hand: ")
+                        self.logger.error(f"{self.robot.format_error(e)}")
+                        width = None
+                        force = None
                 elif self.hand_name == "onrobot_vgc10":
                     width = None
                     force = None
