@@ -103,15 +103,19 @@ class Cobotta_Pro_CON:
         self.tidy_joint = default_joints["tidy"]
 
     def init_robot(self):
-        self.robot = DensoRobot(
-            host=ROBOT_IP,
-            default_servo_mode=servo_mode,
-            logger=self.robot_logger,
-        )
-        self.robot.start()
-        self.robot.clear_error()
-        self.robot.take_arm()
-        self.find_and_setup_hand()
+        try:
+            self.robot = DensoRobot(
+                host=ROBOT_IP,
+                default_servo_mode=servo_mode,
+                logger=self.robot_logger,
+            )
+            self.robot.start()
+            self.robot.clear_error()
+            self.robot.take_arm()
+            self.find_and_setup_hand()
+        except Exception as e:
+            self.logger.error("Error in initializing robot: ")
+            self.logger.error(f"{self.robot.format_error(e)}")
 
     def find_and_setup_hand(self):
         tool_id = int(os.environ["TOOL_ID"])
