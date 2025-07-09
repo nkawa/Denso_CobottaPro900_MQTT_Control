@@ -84,7 +84,7 @@ default_joints = {
 }
 abs_joint_limit = [270, 150, 150, 270, 150, 360]
 abs_joint_limit = np.array(abs_joint_limit)
-abs_joint_soft_limit = abs_joint_limit  #  - 10
+abs_joint_soft_limit = abs_joint_limit - 10
 # 外部速度。単位は%
 speed_normal = 20
 speed_tool_change = 2
