@@ -290,8 +290,9 @@ class Cobotta_Pro_MON:
             if error:
                 actual_joint_js["error"] = error
 
-            self.pose[:len(actual_joint)] = actual_joint
-            self.pose[19] = 1
+            if actual_joint is not None:
+                self.pose[:len(actual_joint)] = actual_joint
+                self.pose[19] = 1
 
             if now-last > 0.3 or "tool_change" in actual_joint_js or "put_down_box" in actual_joint_js:
                 jss = json.dumps(actual_joint_js)
@@ -299,7 +300,8 @@ class Cobotta_Pro_MON:
                 with self.monitor_lock:
                     actual_joint_js["topic_type"] = "robot"
                     actual_joint_js["topic"] = MQTT_ROBOT_STATE_TOPIC
-                    actual_joint_js["poses"] = actual_tcp_pose
+                    if actual_tcp_pose is not None:
+                        actual_joint_js["poses"] = actual_tcp_pose
                     self.monitor_dict.clear()
                     self.monitor_dict.update(actual_joint_js)
                 last = now
