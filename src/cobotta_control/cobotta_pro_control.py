@@ -667,10 +667,12 @@ class Cobotta_Pro_CON:
                     try:
                         self.tool_change(next_tool_id)
                         # NOTE: より良い方法がないか
-                        # ロボットとVRを同期させる
+                        # VRアニメーションがロボットの動きに追従し終わるのを待つ
                         time.sleep(3)
                         self.pose[18] = 1
                         self.pose[17] = 0
+                        # VRのIKで解いた関節角度にロボットの関節角度を合わせるのを待つ
+                        time.sleep(3)
                         self.logger.info("Tool change succeeded")
                     except Exception as e:
                         self.logger.error("Error during tool change")
@@ -993,10 +995,17 @@ class Cobotta_Pro_CON:
                 [-457.81, 15.20, 459.67, -178.82, 0.04, 90.50],
                 interpolation=1, fig=-3
             )
+            # ほぼ同じツール姿勢だが、VRのIKで解いた場合の関節角度に
+            # 合わせる (箱下ろし完了後のVR手動操作で合わせるとユーザーが驚くため)
+            self.robot.move_joint(
+                [-195.75, -7.50, 96.01, -0.89, 74.52, 248.67]
+            )
             # NOTE: より良い方法がないか
-            # ロボットとVRを同期させる
+            # VRアニメーションがロボットの動きに追従し終わるのを待つ
             time.sleep(3)
             self.pose[22] = 1
+            # VRのIKで解いた関節角度にロボットの関節角度を合わせるのを待つ
+            time.sleep(3)
         except Exception as e:
             self.logger.error("Error during demo put down box")
             self.logger.error(f"{self.robot.format_error(e)}")
