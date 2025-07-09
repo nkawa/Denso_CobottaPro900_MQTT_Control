@@ -666,12 +666,12 @@ class Cobotta_Pro_CON:
                     # 失敗した場合は、ループを抜ける
                     try:
                         self.tool_change(next_tool_id)
+                        # NOTE: より良い方法がないか
+                        # ロボットとVRを同期させる
+                        time.sleep(3)
                         self.pose[18] = 1
                         self.pose[17] = 0
                         self.logger.info("Tool change succeeded")
-                        # NOTE: より良い方法がないか
-                        # ロボットとVRを同期させる
-                        time.sleep(5)
                     except Exception as e:
                         self.logger.error("Error during tool change")
                         self.logger.error(f"{self.robot.format_error(e)}")
@@ -684,9 +684,6 @@ class Cobotta_Pro_CON:
                     # 成功しても失敗してもループを継続する (ツールを変えることによる
                     # 予測できないエラーは起こらないため)
                     self.demo_put_down_box()
-                    # NOTE: より良い方法がないか
-                    # ロボットとVRを同期させる
-                    time.sleep(5)                    
                 # 単なる停止が要求された場合は、ループを抜ける
                 else:
                     break
@@ -996,6 +993,9 @@ class Cobotta_Pro_CON:
                 [-457.81, 15.20, 459.67, -178.82, 0.04, 90.50],
                 interpolation=1, fig=-3
             )
+            # NOTE: より良い方法がないか
+            # ロボットとVRを同期させる
+            time.sleep(3)
             self.pose[22] = 1
         except Exception as e:
             self.logger.error("Error during demo put down box")
