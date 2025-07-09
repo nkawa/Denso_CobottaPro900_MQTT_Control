@@ -259,17 +259,26 @@ class Cobotta_Pro_MON:
             with self.slave_mode_lock:
                 if self.pose[14] == 0:
                     actual_joint_js["servo_mode"] = False
-                    errors = self.robot.get_cur_error_info_all()  
+                    try:
+                        errors = self.robot.get_cur_error_info_all()
+                    except Exception as e:
+                        self.logger.error("Error in get_cur_error_info_all: ")
+                        self.logger.error(f"{self.robot.format_error(e)}")
+                        errors = []
                     # 制御プロセスのエラー検出と方法が違うので、
                     # 直後は状態プロセスでエラーが検出されないことがある
                     # その場合は次のループに検出を持ち越す
                     if len(errors) > 0:
                         error = {"errors": errors}
                         # 自動復帰可能エラー
-                        if self.robot.are_all_errors_stateless(errors):
-                            error["auto_recoverable"] = True
-                        # 復帰にユーザーの対応を求めるエラー
-                        else:
+                        try:
+                            auto_recoverable = \
+                                self.robot.are_all_errors_stateless(errors)
+                            error["auto_recoverable"] = auto_recoverable
+                        except Exception as e:
+                            self.logger.error(
+                                "Error in are_all_errors_stateless: ")
+                            self.logger.error(f"{self.robot.format_error(e)}")
                             error["auto_recoverable"] = False
                 else:
                     actual_joint_js["servo_mode"] = True
