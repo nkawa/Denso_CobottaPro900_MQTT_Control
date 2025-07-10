@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List
 from paho.mqtt import client as mqtt
+from cobotta_control.config import SHM_NAME, SHM_SIZE, T_INTV
 from denso_robot import DensoRobot
 
 import datetime
@@ -33,7 +34,6 @@ MQTT_MODE = os.getenv("MQTT_MODE", "metawork")
 SAVE = os.getenv("SAVE", "true") == "true"
 
 # 基本的に運用時には固定するパラメータ
-t_intv = 0.008
 save_state = SAVE
 if save_state:
     save_path = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_status.jsonl"
@@ -325,7 +325,7 @@ class Cobotta_Pro_MON:
                 f.write(js + "\n")
 
             t_elapsed = time.time() - now
-            t_wait = t_intv - t_elapsed
+            t_wait = T_INTV - t_elapsed
             if t_wait > 0:
                 time.sleep(t_wait)
 
@@ -348,8 +348,8 @@ class Cobotta_Pro_MON:
     def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
-        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
         self.monitor_lock = monitor_lock
         self.slave_mode_lock = slave_mode_lock

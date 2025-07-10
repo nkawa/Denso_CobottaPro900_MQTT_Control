@@ -16,6 +16,8 @@ import threading
 import numpy as np
 from dotenv import load_dotenv
 
+from cobotta_control.config import SHM_NAME, SHM_SIZE, ABS_JOINT_LIMIT, T_INTV
+
 package_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'vendor'))
 sys.path.append(package_dir)
 
@@ -65,7 +67,7 @@ elif filter_kind == "target":
 if servo_mode == 0x102:
     t_intv = 0.004
 else:
-    t_intv = 0.008
+    t_intv = T_INTV
 n_windows *= int(0.008 / t_intv)
 reset_default_state = True
 default_joints = {
@@ -82,7 +84,7 @@ default_joints = {
     "vr4": [-46.243, 10.258, 128.201, 125.629, 62.701, 32.618],
     "vr5": [-66.252, 5.645, 136.098, 109.059, 75.561, 35.82],
 }
-abs_joint_limit = [270, 150, 150, 270, 150, 360]
+abs_joint_limit = ABS_JOINT_LIMIT
 abs_joint_limit = np.array(abs_joint_limit)
 abs_joint_soft_limit = abs_joint_limit - 10
 # 外部速度。単位は%

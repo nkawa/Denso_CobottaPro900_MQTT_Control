@@ -19,8 +19,10 @@ import uuid
 
 package_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(package_dir)
+from cobotta_control.config import SHM_NAME, SHM_SIZE
 from cobotta_pro_control import Cobotta_Pro_CON
 from cobotta_pro_monitor import Cobotta_Pro_MON
+from cobotta_pro_monitor_gui import run_joint_monitor_gui
 
 from dotenv import load_dotenv
 
@@ -184,8 +186,8 @@ class Cobotta_Pro_Debug:
 
     def run_proc(self, monitor_dict, log_queue):
         self.setup_logger(log_queue)
-        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         while True:
             diff = self.ar[6:12]-self.ar[0:6]
             diff *=1000
@@ -201,11 +203,11 @@ class Cobotta_Pro_Debug:
 class ProcessManager:
     def __init__(self):
         # mp.set_start_method('spawn')
-        sz = 32 * np.dtype('float32').itemsize
+        sz = SHM_SIZE * np.dtype('float32').itemsize
         try:
-            self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name='cobotta_pro')
+            self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name=SHM_NAME)
         except FileExistsError:
-            self.sm = mp.shared_memory.SharedMemory(size = sz, name='cobotta_pro')
+            self.sm = mp.shared_memory.SharedMemory(size = sz, name=SHM_NAME)
         # self.arの要素の説明
         # [0:6]: 関節の状態値
         # [6:12]: 関節の目標値
@@ -220,7 +222,7 @@ class ProcessManager:
         # [21]: 棚の上の箱を作業台に置くデモの実行フラグ。0: 終了。1: 開始
         # [22]: 棚の上の箱を作業台に置くデモの完了状態。0: 未定義。1: 成功。2: 失敗
         # [23]: 現在のツール番号
-        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
+        self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
         self.monitor_dict = self.manager.dict()
