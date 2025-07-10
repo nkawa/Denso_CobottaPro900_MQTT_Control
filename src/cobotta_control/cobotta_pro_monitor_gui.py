@@ -1,6 +1,8 @@
 import multiprocessing.shared_memory as sm
 import sys
 import time
+import threading
+from collections import deque
 
 import numpy as np
 import pyqtgraph as pg
@@ -17,24 +19,28 @@ from config import (
 class JointMonitorPlot(QtWidgets.QWidget):
     def __init__(
         self,
-        max_points=500,
+        max_points=1000,
     ):
+        """関節角度の時系列データのプロット。"""
         super().__init__()
         self.n_joints = len(ABS_JOINT_LIMIT)
         self.max_points = max_points
         self.t_intv = T_INTV
         self.t_start = time.time()
-        self.t = time.time() - self.t_start
-        self.xdata = []
+        self.xdata = deque(maxlen=max_points)
         self.ydata = {
-            'state': [[] for _ in range(self.n_joints)],
-            'target': [[] for _ in range(self.n_joints)],
-            'control': [[] for _ in range(self.n_joints)],
+            'state': [deque(maxlen=max_points) for _ in range(self.n_joints)],
+            'target': [deque(maxlen=max_points) for _ in range(self.n_joints)],
+            'control': [deque(maxlen=max_points) for _ in range(self.n_joints)],
         }
         self.shm = sm.SharedMemory(SHM_NAME)
         self.pose = np.ndarray(
             (SHM_SIZE,), dtype=np.float32, buffer=self.shm.buf)
-
+        self.data_lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self.data_thread = threading.Thread(
+            target=self.data_acquisition_loop, daemon=True)
+        self.data_thread.start()
         self.plots = []
         self.curves = []
         layout = QtWidgets.QVBoxLayout()
@@ -58,26 +64,46 @@ class JointMonitorPlot(QtWidgets.QWidget):
             layout.addWidget(plot)
         self.setLayout(layout)
 
+        # 前のupdate_plotが終わるまで待つのでその処理が長いと
+        # 必ずしもt_intvの周期で呼ばれるわけではない
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
         self.timer.start(int(self.t_intv * 1000))
 
-    def update_plot(self):
-        self.t = time.time() - self.t_start
-        self.xdata.append(self.t)
-        for i in range(self.n_joints):
-            self.ydata['state'][i].append(float(self.pose[i]))
-            self.ydata['target'][i].append(float(self.pose[i+6]))
-            self.ydata['control'][i].append(float(self.pose[i+24]))
-        if len(self.xdata) > self.max_points:
-            self.xdata = self.xdata[-self.max_points:]
-            for k in self.ydata:
+    def data_acquisition_loop(self):
+        # 共有メモリから最近数件のデータを取得、高速なのでロックしてもOK
+        while not self._stop_event.is_set():
+            t = time.time() - self.t_start
+            pose = self.pose.copy()
+            with self.data_lock:
+                self.xdata.append(t)
                 for i in range(self.n_joints):
-                    self.ydata[k][i] = self.ydata[k][i][-self.max_points:]
+                    self.ydata['state'][i].append(float(pose[i]))
+                    self.ydata['target'][i].append(float(pose[i+6]))
+                    self.ydata['control'][i].append(float(pose[i+24]))
+            # ループ時間が一定になるようにする
+            t_after = time.time() - self.t_start
+            t_elapsed = t_after - t
+            t_wait = self.t_intv - t_elapsed
+            if t_wait > 0:
+                time.sleep(t_wait)
+
+    def update_plot(self):
+        # 最近数件のデータを取得、高速なのでロックしてもOK
+        with self.data_lock:
+            x = np.array(self.xdata)
+            y = {}
+            for i in range(self.n_joints):
+                for k in self.ydata:
+                    y_ = np.array(self.ydata[k][i])
+                    if k not in y:
+                        y[k] = [y_]
+                    else:
+                        y[k].append(y_)
+        # 描画、低速 (30 ms周期くらい)なのでロックしないほうがいい
         for i in range(self.n_joints):
             for k in self.ydata:
-                self.curves[i][k].setData(
-                    np.array(self.xdata), np.array(self.ydata[k][i]))
+                self.curves[i][k].setData(x, y[k][i])
 
 
 def run_joint_monitor_gui():
