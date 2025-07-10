@@ -910,9 +910,11 @@ class Cobotta_Pro_CON:
                 #     interpolation=2, fig=-2
                 # )
                 # かわりに関節制御する (衝突しないことを確認済み)
+                self.robot.ext_speed(5)
                 self.robot.move_joint(
                     [-105.27, 22.47, 35.35, -151.32, -34.53, 154.84]
                 )
+                self.robot.ext_speed(speed_normal)
 
             # この関数を呼ぶ前にホルダーを箱に引っ掛けておく
             # 棚の上の箱はおおよそこの位置にあることを前提とする
@@ -937,7 +939,9 @@ class Cobotta_Pro_CON:
             up_state[2] += 50
             # 形態1
             # 直線移動、形態一定で移動する
+            self.robot.ext_speed(5)
             self.robot.move_pose(up_state, interpolation=2, fig=-2)
+            self.robot.ext_speed(speed_normal)
             # 箱を棚から出す
             self.robot.move_pose(
                 [-302.97, -140.75, 885.68, -49.70, 88.44, -139.19],
