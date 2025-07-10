@@ -1,5 +1,6 @@
 import multiprocessing.shared_memory as sm
 import sys
+import time
 
 import numpy as np
 import pyqtgraph as pg
@@ -12,6 +13,7 @@ from config import (
     T_INTV,
 )
 
+
 class JointMonitorPlot(QtWidgets.QWidget):
     def __init__(
         self,
@@ -21,7 +23,8 @@ class JointMonitorPlot(QtWidgets.QWidget):
         self.n_joints = len(ABS_JOINT_LIMIT)
         self.max_points = max_points
         self.t_intv = T_INTV
-        self.t = 0
+        self.t_start = time.time()
+        self.t = time.time() - self.t_start
         self.xdata = []
         self.ydata = {
             'state': [[] for _ in range(self.n_joints)],
@@ -56,7 +59,7 @@ class JointMonitorPlot(QtWidgets.QWidget):
         self.timer.start(int(self.t_intv * 1000))
 
     def update_plot(self):
-        self.t += self.t_intv
+        self.t = time.time() - self.t_start
         self.xdata.append(self.t)
         for i in range(self.n_joints):
             self.ydata['state'][i].append(float(self.pose[i]))
