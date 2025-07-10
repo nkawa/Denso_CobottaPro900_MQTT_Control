@@ -19,8 +19,10 @@ import uuid
 
 package_dir = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(package_dir)
+from cobotta_control.config import SHM_NAME, SHM_SIZE
 from cobotta_pro_control import Cobotta_Pro_CON
 from cobotta_pro_monitor import Cobotta_Pro_MON
+from cobotta_pro_monitor_gui import run_joint_monitor_gui
 
 from dotenv import load_dotenv
 
@@ -112,6 +114,12 @@ class Cobotta_Pro_MQTT:
                     self.pose[16] = 1
                     self.pose[17] = tool
             
+            if "put_down_box" in js:
+                if self.pose[21] == 0:
+                    if js["put_down_box"]:
+                        self.pose[16] = 1
+                        self.pose[21] = 1
+
             self.pose[20] = 1
             with self.mqtt_control_lock:
                 js["topic_type"] = "control"
@@ -178,8 +186,8 @@ class Cobotta_Pro_Debug:
 
     def run_proc(self, monitor_dict, log_queue):
         self.setup_logger(log_queue)
-        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         while True:
             diff = self.ar[6:12]-self.ar[0:6]
             diff *=1000
@@ -195,11 +203,11 @@ class Cobotta_Pro_Debug:
 class ProcessManager:
     def __init__(self):
         # mp.set_start_method('spawn')
-        sz = 32 * np.dtype('float32').itemsize
+        sz = SHM_SIZE * np.dtype('float32').itemsize
         try:
-            self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name='cobotta_pro')
+            self.sm = mp.shared_memory.SharedMemory(create=True,size = sz, name=SHM_NAME)
         except FileExistsError:
-            self.sm = mp.shared_memory.SharedMemory(size = sz, name='cobotta_pro')
+            self.sm = mp.shared_memory.SharedMemory(size = sz, name=SHM_NAME)
         # self.arの要素の説明
         # [0:6]: 関節の状態値
         # [6:12]: 関節の目標値
@@ -207,11 +215,15 @@ class ProcessManager:
         # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
         # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
         # [16]: 1: リアルタイム制御停止命令（mqtt_control停止命令ではないことに注意）
-        # [17]: 次のツール番号保持用。0のときのみツールチェンジを受け付ける
-        # [18]: tool_changeでの制御プロセスと状態プロセスの同期用
+        # [17]: ツールチェンジの実行フラグ。0: 終了。0以外: 開始。次のツール番号
+        # [18]: ツールチェンジ完了状態。0: 未定義。1: 成功。2: 失敗
         # [19]: 制御開始後の状態値の受信フラグ
         # [20]: 制御開始後の目標値の受信フラグ
-        self.ar = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
+        # [21]: 棚の上の箱を作業台に置くデモの実行フラグ。0: 終了。1: 開始
+        # [22]: 棚の上の箱を作業台に置くデモの完了状態。0: 未定義。1: 成功。2: 失敗
+        # [23]: 現在のツール番号
+        # [24:30]: 関節の制御値
+        self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
         self.monitor_dict = self.manager.dict()
@@ -264,6 +276,13 @@ class ProcessManager:
             args=(self.monitor_dict, self.log_queue),
             name="Cobotta-Pro-debug")
         self.debugP.start()
+
+    def startMonitorGUI(self):
+        self.monitor_guiP = Process(
+            target=run_joint_monitor_gui,
+            name="Cobotta-Pro-monitor-gui",
+        )
+        self.monitor_guiP.start()
 
     def _send_command_to_control(self, command):
         self.main_pipe.send(command)

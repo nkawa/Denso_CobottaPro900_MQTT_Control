@@ -77,7 +77,8 @@ class MicrosecondFormatter(logging.Formatter):
 
 
 class MQTTWin:
-    def __init__(self, root):
+    def __init__(self, root, use_joint_monitor_plot: bool = False):
+        self.use_joint_monitor_plot = use_joint_monitor_plot
         self.pm = ProcessManager()
         log_queue = self.pm.log_queue
         self.setup_logging(log_queue=log_queue)
@@ -492,6 +493,8 @@ class MQTTWin:
             return
         self.pm.startControl()
         self.pm.startMonitor()
+        if self.use_joint_monitor_plot:
+            self.pm.startMonitorGUI()
         self.button_ConnectRobot.config(state="disabled")
         self.button_ClearError.config(state="normal")
         self.button_DefaultPose.config(state="normal")
@@ -713,13 +716,19 @@ if __name__ == '__main__':
         choices=tool_ids,
         help="現在ロボットに付いているツールのID",
     )
+    parser.add_argument(
+        "--use-joint-monitor-plot",
+        action="store_true",
+        help="関節角度のモニタープロットを使用する",
+    )
     args = parser.parse_args()
+    kwargs = vars(args)
     import os
     # HACK: コードの変化を少なくするため、
     # ロボット制御プロセスに引数で渡すのではなく環境変数で渡す
-    os.environ["TOOL_ID"] = str(args.tool_id)
+    os.environ["TOOL_ID"] = str(kwargs.pop("tool_id"))
 
     root = tk.Tk()
-    mqwin = MQTTWin(root)
+    mqwin = MQTTWin(root, **kwargs)
     mqwin.root.lift()
     root.mainloop()

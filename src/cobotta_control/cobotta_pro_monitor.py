@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List
 from paho.mqtt import client as mqtt
+from cobotta_control.config import SHM_NAME, SHM_SIZE, T_INTV
 from denso_robot import DensoRobot
 
 import datetime
@@ -33,7 +34,6 @@ MQTT_MODE = os.getenv("MQTT_MODE", "metawork")
 SAVE = os.getenv("SAVE", "true") == "true"
 
 # 基本的に運用時には固定するパラメータ
-t_intv = 0.008
 save_state = SAVE
 if save_state:
     save_path = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_status.jsonl"
@@ -99,74 +99,11 @@ class Cobotta_Pro_MON:
         return [tool_info for tool_info in tool_infos
                 if tool_info["id"] == tool_id][0]
 
-    def tool_change(self, next_tool_id: int) -> None:
-        while True:
-            if self.pose[18] == 1:
-                break
-            time.sleep(0.008)  
-        self.pose[18] = 2
-        while True:
-            if self.pose[18] == 0:
-                return
-            elif self.pose[18] == 3:
-                break
-            time.sleep(0.008)
-        tool_info = self.get_tool_info(tool_infos, self.tool_id)
-        next_tool_info = self.get_tool_info(tool_infos, next_tool_id)
-        # 現在のツールとの接続を切る
-        # 現在ツールが付いていないとき
-        if tool_info["id"] == -1:
-            assert next_tool_info["id"] != -1
-        # 現在ツールが付いているとき
-        else:
-            self.hand.disconnect()
-        self.pose[18] = 4
-        while True:
-            if self.pose[18] == 5:
-                break
-            time.sleep(0.008)          
-        # 現在ツールが付いていないとき
-        if tool_info["id"] == -1:
-            assert next_tool_info["id"] != -1
-            name = next_tool_info["name"]
-            hand = tool_classes[name]()
-            connected = hand.connect_and_setup()
-            # NOTE: 接続できなければ止めたほうが良いと考える
-            if not connected:
-                raise ValueError("Failed to connect to any hand")
-            self.pose[18] = 6
-        # 現在ツールが付いているとき
-        else:
-            if next_tool_info["id"] == -1:
-                self.pose[18] = 6
-            else:
-                name = next_tool_info["name"]
-                hand = tool_classes[name]()
-                connected = hand.connect_and_setup()
-                # NOTE: 接続できなければ止めたほうが良いと考える
-                if not connected:
-                    raise ValueError("Failed to connect to any hand")
-                self.pose[18] = 6
-        self.hand_name = name
-        self.hand = hand
-        self.tool_id = next_tool_id
-        while True:
-            if self.pose[18] == 0:
-                return
-            time.sleep(0.008)
-
-    def tool_change_if_needed(self) -> None:
-        try:
-            next_tool_id = self.pose[17].copy()
-            if next_tool_id != 0:
-                self.tool_change(next_tool_id)
-        except Exception as e:
-            self.logger.error("Error during tool change")
-            self.logger.error(f"{self.robot.format_error(e)}")
-
     def monitor_start(self):
         last = 0
         last_error_monitored = 0
+        is_in_tool_change = False
+        is_put_down_box = False
         while True:
             now = time.time()
             if last == 0:
@@ -174,57 +111,143 @@ class Cobotta_Pro_MON:
             if last_error_monitored == 0:
                 last_error_monitored = now
 
+            actual_joint_js = {}
+
+            # ツール番号
+            tool_id = int(self.pose[23].copy())
+            # 起動時（共有メモリが初期化されている）のみ初期値を使用
+            if tool_id == 0:
+                tool_id = self.tool_id
+            # それ以外は制御プロセスからの値を使用
+            else:
+                self.tool_id = tool_id
+
             # ツールチェンジ
-            self.tool_change_if_needed()
+            status_tool_change = None
+            next_tool_id = int(self.pose[17].copy())
+            if next_tool_id != 0:
+                if not is_in_tool_change:
+                    is_in_tool_change = True
+                    self.logger.info("Tool change started")
+            else:
+                if is_in_tool_change:
+                    is_in_tool_change = False
+                    status_tool_change = bool(self.pose[18] == 1)
+                    self.logger.info("Tool change finished")
+            if status_tool_change is not None:
+                self.logger.info(f"Tool change status: {status_tool_change}")
+                # 終了した場合のみキーを追加
+                actual_joint_js["tool_change"] = status_tool_change
+                # 成功した場合のみ接続
+                if status_tool_change:
+                    next_tool_info = self.get_tool_info(tool_infos, tool_id)
+                    name = next_tool_info["name"]
+                    hand = tool_classes[name]()
+                    connected = hand.connect_and_setup()
+                    # NOTE: 接続できなければ止めたほうが良いと考える
+                    # TODO: 接続できなければハンドは動かせない状態で継続するようにする
+                    # TODO: ツールチェンジ中に一貫性をもたせる
+                    if not connected:
+                        raise ValueError("Failed to connect to any hand")
+                    self.hand_name = name
+                    self.hand = hand
+
+            # 棚の上の箱を作業台に置くデモ
+            status_put_down_box = None
+            put_down_box = self.pose[21].copy()
+            if put_down_box != 0:
+                if not is_put_down_box:
+                    is_put_down_box = True
+            else:
+                if is_put_down_box:
+                    is_put_down_box = False
+                    status_put_down_box = bool(self.pose[22] == 1)
+            # 終了した場合のみキーを追加
+            if status_put_down_box is not None:
+                actual_joint_js["put_down_box"] = status_put_down_box
 
             # TCP姿勢
-            actual_tcp_pose = self.robot.get_current_pose()
+            try:
+                actual_tcp_pose = self.robot.get_current_pose()
+            except Exception as e:
+                self.logger.error("Error in get_current_pose: ")
+                self.logger.error(f"{self.robot.format_error(e)}")
+                actual_tcp_pose = None
             # 関節
-            actual_joint = self.robot.get_current_joint()
-            if MQTT_FORMAT == 'UR-realtime-control-MQTT':        
-                joints = ['j1','j2','j3','j4','j5','j6']
-                actual_joint_js = {
-                    k: v for k, v in zip(joints, actual_joint)}
-            elif MQTT_FORMAT == 'Denso-Cobotta-Pro-Control-IK':
-                # 7要素送る必要があるのでダミーの[0]を追加
-                actual_joint_js = {"joints": list(actual_joint) + [0]}
-                # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
-                # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
-                # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
-                # NOTE(20250604): 一時的な対応。VR側で修正され次第削除。
-                # actual_joint_js["joints"][0] = actual_joint_js["joints"][0] + 180
-            else:
-                raise ValueError
+            try:
+                actual_joint = self.robot.get_current_joint()
+            except Exception as e:
+                self.logger.error("Error in get_current_joint: ")
+                self.logger.error(f"{self.robot.format_error(e)}")
+                actual_joint = None
+            if actual_joint is not None:
+                if MQTT_FORMAT == 'UR-realtime-control-MQTT':        
+                    joints = ['j1','j2','j3','j4','j5','j6']
+                    actual_joint_js.update({
+                        k: v for k, v in zip(joints, actual_joint)})
+                elif MQTT_FORMAT == 'Denso-Cobotta-Pro-Control-IK':
+                    # 7要素送る必要があるのでダミーの[0]を追加
+                    actual_joint_js.update({"joints": list(actual_joint) + [0]})
+                    # NOTE: j5の基準がVRと実機とでずれているので補正。将来的にはVR側で修正?
+                    # NOTE(20250530): 現状はこれでうまく行くがVR側と意思疎通が必要
+                    # actual_joint_js["joints"][4] = actual_joint_js["joints"][4] - 90
+                    # NOTE(20250604): 一時的な対応。VR側で修正され次第削除。
+                    # actual_joint_js["joints"][0] = actual_joint_js["joints"][0] + 180
+                else:
+                    raise ValueError
             
             # 型: 整数、単位: ms
             time_ms = int(now * 1000)
             actual_joint_js["time"] = time_ms
             # [X, Y, Z, RX, RY, RZ]: センサ値の力[N]とモーメント[Nm]
-            forces = self.robot.ForceValue()
-            actual_joint_js["forces"] = forces
+            try:
+                forces = self.robot.ForceValue()
+            except Exception as e:
+                self.logger.error("Error in ForceValue: ")
+                self.logger.error(f"{self.robot.format_error(e)}")
+                forces = None
+            if forces is not None:
+                actual_joint_js["forces"] = forces
 
-            tool_id = self.tool_id
             actual_joint_js["tool_id"] = int(tool_id)
-            # ツール依存の部分はまとめるべき
-            if tool_id == -1:
+            # ツールチェンジ中はツールのセンサは使用しない
+            if is_in_tool_change:
                 width = None
                 force = None
             else:
-                if self.hand_name == "onrobot_2fg7":
-                   width = self.hand.get_ext_width()
-                   force = self.hand.get_force()
-                elif self.hand_name == "onrobot_vgc10":
+                # ツール依存の部分はまとめるべき
+                if tool_id == -1:
                     width = None
                     force = None
-                elif self.hand_name == "cutter":
-                   width = None
-                   force = None
-                elif self.hand_name == "plate_holder":
-                   width = None
-                   force = None
+                else:
+                    if self.hand_name == "onrobot_2fg7":
+                        try:
+                            width = self.hand.get_ext_width()
+                            force = self.hand.get_force()
+                        except Exception as e:
+                            self.logger.error("Error in onrobot_2fg7 hand: ")
+                            self.logger.error(f"{self.robot.format_error(e)}")
+                            width = None
+                            force = None
+                    elif self.hand_name == "onrobot_vgc10":
+                        width = None
+                        force = None
+                    elif self.hand_name == "cutter":
+                        width = None
+                        force = None
+                    elif self.hand_name == "plate_holder":
+                        width = None
+                        force = None
 
             # モータがONか
-            enabled = self.robot.is_enabled()
+            try:
+                enabled = self.robot.is_enabled()
+            except Exception as e:
+                self.logger.warning(
+                    "Somehow failed in checking if robot is enabled. "
+                    "Enabled value may be incorrect.")
+                self.logger.warning(f"{self.robot.format_error(e)}")
+                enabled = False
             actual_joint_js["enabled"] = enabled
 
             error = {}
@@ -236,17 +259,26 @@ class Cobotta_Pro_MON:
             with self.slave_mode_lock:
                 if self.pose[14] == 0:
                     actual_joint_js["servo_mode"] = False
-                    errors = self.robot.get_cur_error_info_all()  
+                    try:
+                        errors = self.robot.get_cur_error_info_all()
+                    except Exception as e:
+                        self.logger.error("Error in get_cur_error_info_all: ")
+                        self.logger.error(f"{self.robot.format_error(e)}")
+                        errors = []
                     # 制御プロセスのエラー検出と方法が違うので、
                     # 直後は状態プロセスでエラーが検出されないことがある
                     # その場合は次のループに検出を持ち越す
                     if len(errors) > 0:
                         error = {"errors": errors}
                         # 自動復帰可能エラー
-                        if self.robot.are_all_errors_stateless(errors):
-                            error["auto_recoverable"] = True
-                        # 復帰にユーザーの対応を求めるエラー
-                        else:
+                        try:
+                            auto_recoverable = \
+                                self.robot.are_all_errors_stateless(errors)
+                            error["auto_recoverable"] = auto_recoverable
+                        except Exception as e:
+                            self.logger.error(
+                                "Error in are_all_errors_stateless: ")
+                            self.logger.error(f"{self.robot.format_error(e)}")
                             error["auto_recoverable"] = False
                 else:
                     actual_joint_js["servo_mode"] = True
@@ -258,16 +290,18 @@ class Cobotta_Pro_MON:
             if error:
                 actual_joint_js["error"] = error
 
-            self.pose[:len(actual_joint)] = actual_joint
-            self.pose[19] = 1
+            if actual_joint is not None:
+                self.pose[:len(actual_joint)] = actual_joint
+                self.pose[19] = 1
 
-            if now-last > 0.3:
+            if now-last > 0.3 or "tool_change" in actual_joint_js or "put_down_box" in actual_joint_js:
                 jss = json.dumps(actual_joint_js)
                 self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
                 with self.monitor_lock:
                     actual_joint_js["topic_type"] = "robot"
                     actual_joint_js["topic"] = MQTT_ROBOT_STATE_TOPIC
-                    actual_joint_js["poses"] = actual_tcp_pose
+                    if actual_tcp_pose is not None:
+                        actual_joint_js["poses"] = actual_tcp_pose
                     self.monitor_dict.clear()
                     self.monitor_dict.update(actual_joint_js)
                 last = now
@@ -291,7 +325,7 @@ class Cobotta_Pro_MON:
                 f.write(js + "\n")
 
             t_elapsed = time.time() - now
-            t_wait = t_intv - t_elapsed
+            t_wait = T_INTV - t_elapsed
             if t_wait > 0:
                 time.sleep(t_wait)
 
@@ -314,8 +348,8 @@ class Cobotta_Pro_MON:
     def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
-        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.monitor_dict = monitor_dict
         self.monitor_lock = monitor_lock
         self.slave_mode_lock = slave_mode_lock
