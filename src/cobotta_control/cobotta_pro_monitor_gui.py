@@ -42,9 +42,13 @@ class JointMonitorPlot(QtWidgets.QWidget):
             plot = pg.PlotWidget(title=f"Joint {i+1}")
             if i == 0:
                 plot.addLegend()
-            curve_state = plot.plot(pen="b", name="state")
-            curve_target = plot.plot(pen="r", name="target")
-            curve_control = plot.plot(pen="g", name="control")
+            width = 3  # pixel
+            curve_target = plot.plot(
+                pen=pg.mkPen("r", width=width), name="target")
+            curve_control = plot.plot(
+                pen=pg.mkPen("g", width=width), name="control")
+            curve_state = plot.plot(
+                pen=pg.mkPen("b", width=width), name="state")
             self.plots.append(plot)
             self.curves.append({
                 "state": curve_state,
