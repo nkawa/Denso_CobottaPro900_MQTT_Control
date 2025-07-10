@@ -222,6 +222,7 @@ class ProcessManager:
         # [21]: 棚の上の箱を作業台に置くデモの実行フラグ。0: 終了。1: 開始
         # [22]: 棚の上の箱を作業台に置くデモの完了状態。0: 未定義。1: 成功。2: 失敗
         # [23]: 現在のツール番号
+        # [24:30]: 関節の制御値
         self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -275,6 +276,13 @@ class ProcessManager:
             args=(self.monitor_dict, self.log_queue),
             name="Cobotta-Pro-debug")
         self.debugP.start()
+
+    def startMonitorGUI(self):
+        self.monitor_guiP = Process(
+            target=run_joint_monitor_gui,
+            name="Cobotta-Pro-monitor-gui",
+        )
+        self.monitor_guiP.start()
 
     def _send_command_to_control(self, command):
         self.main_pipe.send(command)

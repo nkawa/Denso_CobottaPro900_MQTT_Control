@@ -429,6 +429,8 @@ class Cobotta_Pro_CON:
                 control = last_target_filtered + target_diff_speed_limited
             else:
                 raise ValueError
+            
+            self.pose[24:30] = control
 
             if save_control:
                 # 分析用データ保存
@@ -1034,8 +1036,8 @@ class Cobotta_Pro_CON:
     def run_proc(self, control_pipe, slave_mode_lock, log_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
-        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.slave_mode_lock = slave_mode_lock
  
         self.init_robot()

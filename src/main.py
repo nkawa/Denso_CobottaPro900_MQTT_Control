@@ -492,6 +492,7 @@ class MQTTWin:
             return
         self.pm.startControl()
         self.pm.startMonitor()
+        self.pm.startMonitorGUI()
         self.button_ConnectRobot.config(state="disabled")
         self.button_ClearError.config(state="normal")
         self.button_DefaultPose.config(state="normal")
