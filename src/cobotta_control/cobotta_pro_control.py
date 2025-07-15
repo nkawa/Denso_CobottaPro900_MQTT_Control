@@ -518,7 +518,7 @@ class Cobotta_Pro_CON:
                 # 変えることもできる (どういう仕組みを作るかは別)
                 self.hand.grip(waiting=False)
             elif self.hand_name == "onrobot_vgc10":
-                self.hand.grip(waiting=False, vacuumA = 40,  vacuumB =40)
+                self.hand.grip(waiting=False, vacuumA=80,  vacuumB=80)
         except Exception:
             self.logger.exception("Error gripping hand")
     
