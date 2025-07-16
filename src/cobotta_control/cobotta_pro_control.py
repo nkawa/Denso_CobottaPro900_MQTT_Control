@@ -619,6 +619,7 @@ class Cobotta_Pro_CON:
                 time.sleep(1)
                 self.logger.error("Error in control loop")
                 self.logger.error(f"{self.robot.format_error(e)}")
+                    self.logger.error("Error leaving servo mode")
                 # タイムアウトの場合は接続からやり直す
                 if ((type(e) is ORiNException and
                     e.hresult == HResult.E_TIMEOUT) or
