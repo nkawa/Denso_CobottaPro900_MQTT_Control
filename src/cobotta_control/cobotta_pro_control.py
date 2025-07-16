@@ -645,7 +645,27 @@ class Cobotta_Pro_CON:
                             try:
                                 self.robot.start()
                                 self.robot.clear_error()
-                                self.robot.take_arm()
+
+                                # NOTE: タイムアウトした場合の数回に1回、
+                                # 制御権が取得できない場合がある。しかし、
+                                # このメソッドのこの例外から抜けた後に
+                                # GUIでClearError -> Enable -> StartMQTTControl
+                                # とすると制御権が取得できる。
+                                # ここで制御権を取得しても、GUIから制御権を取得しても
+                                # 内部的には同じ関数を呼んでいるので原因不明
+                                # (ソケットやbCAPClientのidが両者で同じことも確認済み)
+                                # 0. 元
+                                # self.robot.take_arm()
+                                # 1. ここをイネーブルにしても変わらない
+                                # self.robot.enable_robot(ext_speed=speed_normal)
+                                # 2. manual_resetを追加しても変わらない
+                                # self.robot.manual_reset()
+                                # self.robot.take_arm()
+                                # 3. 待っても変わらない
+                                # time.sleep(5)
+                                # self.robot.take_arm()
+                                # time.sleep(5)
+
                                 self.find_and_setup_hand(self.tool_id)
                                 self.logger.info(
                                     "Reconnected to robot successfully"
@@ -684,9 +704,9 @@ class Cobotta_Pro_CON:
                             "Error is not automatically recoverable")
                         self.pose[16] = 0
                         return False
-                except Exception as e:
+                except Exception as e_recover:
                     self.logger.error("Error during automatic recover")
-                    self.logger.error(f"{self.robot.format_error(e)}")
+                    self.logger.error(f"{self.robot.format_error(e_recover)}")
                     self.pose[16] = 0
                     return False
 
