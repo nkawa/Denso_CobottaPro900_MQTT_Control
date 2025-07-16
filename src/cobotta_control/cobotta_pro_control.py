@@ -471,7 +471,15 @@ class Cobotta_Pro_CON:
                 try:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
-                    if not self.robot.is_error_level_0(e):
+                    if (type(e) is ORiNException and
+                        e.hresult == HResult.E_TIMEOUT):
+                        raise e
+                    is_error_level_0 = self.robot.is_error_level_0(e)
+                    if is_error_level_0:
+                        self.logger.warning(
+                            "Maybe trivial error in move_joint_servo")
+                        self.logger.warning(f"{self.robot.format_error(e)}")
+                    else:
                         raise e
 
                 if self.pose[13] == 1:
@@ -612,8 +620,9 @@ class Cobotta_Pro_CON:
                 self.logger.error("Error in control loop")
                 self.logger.error(f"{self.robot.format_error(e)}")
                 # タイムアウトの場合は接続からやり直す
-                if (type(e) is ORiNException and
-                    e.hresult == HResult.E_TIMEOUT):
+                if ((type(e) is ORiNException and
+                    e.hresult == HResult.E_TIMEOUT) or
+                   (type(e) is not ORiNException)):
                         for i in range(1, 11):
                             try:
                                 self.robot.start()
