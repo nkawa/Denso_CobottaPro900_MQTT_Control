@@ -174,6 +174,19 @@ class DensoRobot:
         # 引数2: 現在の内部速度，カレントツール番号，カレントワーク番号を変更せず，保持
         self._bcap.robot_execute(self._hRob, "Takearm", [0, 1])
 
+    def take_arm_state(self) -> int:
+        """
+        指定したアームグループが制御権を取得されているかどうかを返します。
+        
+        指定したアームグループの制御権がいずれかのタスクに取得されているときは"1"、
+        どのタスクにも取得されていないときは"0"を返します。
+
+        自タスクが軸の制御権を取得していないときに、
+        引数アームグループに-1を指定した場合は"0"を返します。
+        """
+        # 引数1: アームグループ番号
+        return self._bcap.robot_execute(self._hRob, "TakeArmState", -1)
+
     def give_arm(self) -> None:
         """
         制御権の解放要求を行います.
