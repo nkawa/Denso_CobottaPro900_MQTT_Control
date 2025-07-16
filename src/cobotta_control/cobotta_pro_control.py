@@ -655,7 +655,7 @@ class Cobotta_Pro_CON:
                                 # 内部的には同じ関数を呼んでいるので原因不明
                                 # (ソケットやbCAPClientのidが両者で同じことも確認済み)
                                 # 0. 元
-                                # self.robot.take_arm()
+                                self.robot.take_arm()
                                 # 1. ここをイネーブルにしても変わらない
                                 # self.robot.enable_robot(ext_speed=speed_normal)
                                 # 2. manual_resetを追加しても変わらない
