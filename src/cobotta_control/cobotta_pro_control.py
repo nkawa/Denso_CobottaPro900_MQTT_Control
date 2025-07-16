@@ -651,11 +651,11 @@ class Cobotta_Pro_CON:
                                     "Reconnected to robot successfully"
                                     " after timeout")
                                 break
-                            except Exception as e:
+                            except Exception as e_reconnect:
                                 self.logger.error(
                                     "Error in reconnecting robot")
                                 self.logger.error(
-                                    f"{self.robot.format_error(e)}")
+                                    f"{self.robot.format_error(e_reconnect)}")
                                 if i == 10:
                                     self.logger.error(
                                         "Failed to reconnect robot after"
