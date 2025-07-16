@@ -21,7 +21,7 @@ from cobotta_control.config import SHM_NAME, SHM_SIZE, ABS_JOINT_LIMIT, T_INTV
 package_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'vendor'))
 sys.path.append(package_dir)
 
-from bcap_python.orinexception import ORiNException
+from bcap_python.orinexception import HResult, ORiNException
 from denso_robot import E_ACCEL_AUTO_RECOVERABLE_SET, E_AUTO_RECOVERABLE_SET, E_VEL_AUTO_RECOVERABLE_SET, DensoRobot, original_error_to_python_error
 
 from filter import SMAFilter
@@ -114,13 +114,13 @@ class Cobotta_Pro_CON:
             self.robot.start()
             self.robot.clear_error()
             self.robot.take_arm()
-            self.find_and_setup_hand()
+            tool_id = int(os.environ["TOOL_ID"])
+            self.find_and_setup_hand(tool_id)
         except Exception as e:
             self.logger.error("Error in initializing robot: ")
             self.logger.error(f"{self.robot.format_error(e)}")
 
-    def find_and_setup_hand(self):
-        tool_id = int(os.environ["TOOL_ID"])
+    def find_and_setup_hand(self, tool_id):
         connected = False
         tool_info = self.get_tool_info(tool_infos, tool_id)
         name = tool_info["name"]
@@ -471,11 +471,16 @@ class Cobotta_Pro_CON:
                 try:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
-                    if not self.robot.is_error_level_0(e):
-                        self.logger.error(
-                            "Error in move_joint_servo: ")
-                        self.logger.error(f"{self.robot.format_error(e)}")
-                        return False
+                    if (type(e) is ORiNException and
+                        e.hresult == HResult.E_TIMEOUT):
+                        raise e
+                    is_error_level_0 = self.robot.is_error_level_0(e)
+                    if is_error_level_0:
+                        self.logger.warning(
+                            "Maybe trivial error in move_joint_servo")
+                        self.logger.warning(f"{self.robot.format_error(e)}")
+                    else:
+                        raise e
 
                 if self.pose[13] == 1:
                     th1 = threading.Thread(target=self.send_grip)
@@ -518,7 +523,7 @@ class Cobotta_Pro_CON:
                 # 変えることもできる (どういう仕組みを作るかは別)
                 self.hand.grip(waiting=False)
             elif self.hand_name == "onrobot_vgc10":
-                self.hand.grip(waiting=False, vacuumA = 40,  vacuumB =40)
+                self.hand.grip(waiting=False, vacuumA=80,  vacuumB=80)
         except Exception:
             self.logger.exception("Error gripping hand")
     
@@ -594,62 +599,117 @@ class Cobotta_Pro_CON:
 
     def control_loop_w_recover_automatic(self) -> bool:
         """自動復帰を含むリアルタイム制御ループ"""
-        try:
-            self.logger.info("Start Control Loop with Automatic Recover")
-            self.enter_servo_mode()
-            # 自動復帰ループ
-            while True:
+        self.logger.info("Start Control Loop with Automatic Recover")
+        # 自動復帰ループ
+        while True:
+            try:
                 # 制御ループ
                 # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
-                # 後者の場合も例外は送出されない
-                success_stop = self.control_loop()
+                self.enter_servo_mode()
+                self.control_loop()
                 self.leave_servo_mode()
-                # ユーザーが要求した場合、自動復帰しない
+                # ここまで正常に終了した場合、ユーザーが要求した場合が成功を意味する
                 if self.pose[16] == 1:
                     self.pose[16] = 0
-                    if success_stop:
-                        self.logger.info("User required stop and succeeded")
-                        return True
-                    else:
-                        self.logger.warning("User required stop but failed")
-                        return False
+                    self.logger.info("User required stop and succeeded")
+                    return True
+            except Exception as e:
                 # 自然に内部エラーが発生した場合、自動復帰を試みる
-                else:
-                    # 自動復帰の前にエラーを確実にモニタするため待機
-                    time.sleep(1)
+                # 自動復帰の前にエラーを確実にモニタするため待機
+                time.sleep(1)
+                self.logger.error("Error in control loop")
+                self.logger.error(f"{self.robot.format_error(e)}")
+
+                # 必ずスレーブモードから抜ける
+                try:
+                    self.leave_servo_mode()
+                except Exception as e_leave:
+                    self.logger.error("Error leaving servo mode")
+                    self.logger.error(f"{self.robot.format_error(e_leave)}")
+                    # タイムアウトの場合はスレーブモードは切れているので
+                    # 共有メモリを更新する
+                    if ((type(e_leave) is ORiNException and
+                        e_leave.hresult == HResult.E_TIMEOUT) or
+                        (type(e_leave) is not ORiNException)):
+                        self.pose[14] = 0
+                    # それ以外は原因不明なのでループは抜ける
+                    else:
+                        self.pose[16] = 0
+                        return False
+
+                # タイムアウトの場合は接続からやり直す
+                if ((type(e) is ORiNException and
+                    e.hresult == HResult.E_TIMEOUT) or
+                   (type(e) is not ORiNException)):
+                        for i in range(1, 11):
+                            try:
+                                self.robot.start()
+                                self.robot.clear_error()
+
+                                # NOTE: タイムアウトした場合の数回に1回、
+                                # 制御権が取得できない場合がある。しかし、
+                                # このメソッドのこの例外から抜けた後に
+                                # GUIでClearError -> Enable -> StartMQTTControl
+                                # とすると制御権が取得できる。
+                                # ここで制御権を取得しても、GUIから制御権を取得しても
+                                # 内部的には同じ関数を呼んでいるので原因不明
+                                # (ソケットやbCAPClientのidが両者で同じことも確認済み)
+                                # 0. 元
+                                self.robot.take_arm()
+                                # 1. ここをイネーブルにしても変わらない
+                                # self.robot.enable_robot(ext_speed=speed_normal)
+                                # 2. manual_resetを追加しても変わらない
+                                # self.robot.manual_reset()
+                                # self.robot.take_arm()
+                                # 3. 待っても変わらない
+                                # time.sleep(5)
+                                # self.robot.take_arm()
+                                # time.sleep(5)
+
+                                self.find_and_setup_hand(self.tool_id)
+                                self.logger.info(
+                                    "Reconnected to robot successfully"
+                                    " after timeout")
+                                break
+                            except Exception as e_reconnect:
+                                self.logger.error(
+                                    "Error in reconnecting robot")
+                                self.logger.error(
+                                    f"{self.robot.format_error(e_reconnect)}")
+                                if i == 10:
+                                    self.logger.error(
+                                        "Failed to reconnect robot after"
+                                        " 10 attempts")
+                                    self.pose[16] = 0
+                                    return False
+                            time.sleep(1)
+                # ここまでに接続ができている場合
+                try:
                     errors = self.robot.get_cur_error_info_all()
-                    self.logger.error(f"Error in control loop: {errors}")
+                    self.logger.error(f"Errors in teach pendant: {errors}")
                     # 自動復帰可能エラー
                     if self.robot.are_all_errors_stateless(errors):
                         # 自動復帰を試行。失敗またはエラーの場合は通常モードに戻る。
-                        try:
-                            # エラー直後の自動復帰処理に失敗しても、
-                            # 同じ復帰処理を手動で行うと成功することもあるので
-                            # 手動で操作が可能な状態に戻す
-                            ret = self.robot.recover_automatic_enable()
-                            if not ret:
-                                raise ValueError(
-                                    "Automatic recover failed in timeout")
-                            self.enter_servo_mode()
-                            self.logger.info("Automatic recover succeeded")
-                            # 自動復帰完了
-                            continue
-                        except Exception as e:
-                            self.logger.error("Error during automatic recover")
-                            self.logger.error(f"{self.robot.format_error(e)}")
-                            self.leave_servo_mode()
-                            return False
+                        # エラー直後の自動復帰処理に失敗しても、
+                        # 同じ復帰処理を手動で行うと成功することもあるので
+                        # 手動で操作が可能な状態に戻す
+                        ret = self.robot.recover_automatic_enable()
+                        if not ret:
+                            raise ValueError(
+                                "Automatic recover failed in enable timeout")
+                        self.logger.info("Automatic recover succeeded")                    
                     # 自動復帰不可能エラー
                     else:
                         self.logger.error(
                             "Error is not automatically recoverable")
+                        self.pose[16] = 0
                         return False
-        except Exception as e:
-            self.logger.error("Error in control loop with recover automatic")
-            self.logger.error(f"{self.robot.format_error(e)}")
-            self.leave_servo_mode()
-            self.pose[16] = 0
-            return False
+                except Exception as e_recover:
+                    self.logger.error("Error during automatic recover")
+                    self.logger.error(f"{self.robot.format_error(e_recover)}")
+                    self.pose[16] = 0
+                    return False
+
 
     def mqtt_control_loop(self) -> None:
         """MQTTによる制御ループ"""
