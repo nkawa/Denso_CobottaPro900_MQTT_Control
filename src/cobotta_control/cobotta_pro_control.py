@@ -619,7 +619,24 @@ class Cobotta_Pro_CON:
                 time.sleep(1)
                 self.logger.error("Error in control loop")
                 self.logger.error(f"{self.robot.format_error(e)}")
+
+                # 必ずスレーブモードから抜ける
+                try:
+                    self.leave_servo_mode()
+                except Exception as e_leave:
                     self.logger.error("Error leaving servo mode")
+                    self.logger.error(f"{self.robot.format_error(e_leave)}")
+                    # タイムアウトの場合はスレーブモードは切れているので
+                    # 共有メモリを更新する
+                    if ((type(e_leave) is ORiNException and
+                        e_leave.hresult == HResult.E_TIMEOUT) or
+                        (type(e_leave) is not ORiNException)):
+                        self.pose[14] = 0
+                    # それ以外は原因不明なのでループは抜ける
+                    else:
+                        self.pose[16] = 0
+                        return False
+
                 # タイムアウトの場合は接続からやり直す
                 if ((type(e) is ORiNException and
                     e.hresult == HResult.E_TIMEOUT) or
