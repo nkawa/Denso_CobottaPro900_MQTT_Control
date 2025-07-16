@@ -144,11 +144,9 @@ class Cobotta_Pro_MON:
                     name = next_tool_info["name"]
                     hand = tool_classes[name]()
                     connected = hand.connect_and_setup()
-                    # NOTE: 接続できなければ止めたほうが良いと考える
-                    # TODO: 接続できなければハンドは動かせない状態で継続するようにする
-                    # TODO: ツールチェンジ中に一貫性をもたせる
                     if not connected:
-                        raise ValueError("Failed to connect to any hand")
+                        self.logger.warning(
+                            f"Failed to connect to hand: {name}")
                     self.hand_name = name
                     self.hand = hand
 
