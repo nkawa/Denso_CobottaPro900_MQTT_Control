@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List
 from paho.mqtt import client as mqtt
+from bcap_python.orinexception import HResult, ORiNException
 from cobotta_control.config import SHM_NAME, SHM_SIZE, T_INTV
 from denso_robot import DensoRobot
 
@@ -47,10 +48,10 @@ class Cobotta_Pro_MON:
         self.robot = DensoRobot(host=ROBOT_IP, logger=self.robot_logger)
         self.robot.start()
         self.robot.clear_error()
-        self.find_and_setup_hand()
-
-    def find_and_setup_hand(self):
         tool_id = int(os.environ["TOOL_ID"])
+        self.find_and_setup_hand(tool_id)
+
+    def find_and_setup_hand(self, tool_id):
         connected = False
         tool_info = self.get_tool_info(tool_infos, tool_id)
         name = tool_info["name"]
@@ -64,6 +65,32 @@ class Cobotta_Pro_MON:
         self.hand_name = name
         self.hand = hand
         self.tool_id = tool_id
+
+    def reconnect_after_timeout(self, e: Exception) -> bool:
+        if ((type(e) is ORiNException and
+            e.hresult == HResult.E_TIMEOUT) or
+            (type(e) is not ORiNException)):
+                for i in range(1, 11):
+                    try:
+                        self.robot.start()
+                        self.robot.clear_error()
+                        self.find_and_setup_hand(self.tool_id)
+                        self.logger.info(
+                            "Reconnected to robot successfully"
+                            " after timeout")
+                        return True
+                    except Exception as e:
+                        self.logger.error(
+                            "Error in reconnecting robot")
+                        self.logger.error(
+                            f"{self.robot.format_error(e)}")
+                    time.sleep(1)
+                self.logger.error(
+                    "Failed to reconnect robot after"
+                    " 10 attempts")
+                return False
+        else:
+            return True
 
     def init_realtime(self):
         os_used = sys.platform
@@ -144,11 +171,9 @@ class Cobotta_Pro_MON:
                     name = next_tool_info["name"]
                     hand = tool_classes[name]()
                     connected = hand.connect_and_setup()
-                    # NOTE: 接続できなければ止めたほうが良いと考える
-                    # TODO: 接続できなければハンドは動かせない状態で継続するようにする
-                    # TODO: ツールチェンジ中に一貫性をもたせる
                     if not connected:
-                        raise ValueError("Failed to connect to any hand")
+                        self.logger.warning(
+                            f"Failed to connect to hand: {name}")
                     self.hand_name = name
                     self.hand = hand
 
@@ -172,6 +197,7 @@ class Cobotta_Pro_MON:
             except Exception as e:
                 self.logger.error("Error in get_current_pose: ")
                 self.logger.error(f"{self.robot.format_error(e)}")
+                self.reconnect_after_timeout(e)
                 actual_tcp_pose = None
             # 関節
             try:
@@ -179,6 +205,7 @@ class Cobotta_Pro_MON:
             except Exception as e:
                 self.logger.error("Error in get_current_joint: ")
                 self.logger.error(f"{self.robot.format_error(e)}")
+                self.reconnect_after_timeout(e)
                 actual_joint = None
             if actual_joint is not None:
                 if MQTT_FORMAT == 'UR-realtime-control-MQTT':        
@@ -205,6 +232,7 @@ class Cobotta_Pro_MON:
             except Exception as e:
                 self.logger.error("Error in ForceValue: ")
                 self.logger.error(f"{self.robot.format_error(e)}")
+                self.reconnect_after_timeout(e)
                 forces = None
             if forces is not None:
                 actual_joint_js["forces"] = forces
@@ -247,6 +275,7 @@ class Cobotta_Pro_MON:
                     "Somehow failed in checking if robot is enabled. "
                     "Enabled value may be incorrect.")
                 self.logger.warning(f"{self.robot.format_error(e)}")
+                self.reconnect_after_timeout(e)
                 enabled = False
             actual_joint_js["enabled"] = enabled
 
@@ -264,6 +293,7 @@ class Cobotta_Pro_MON:
                     except Exception as e:
                         self.logger.error("Error in get_cur_error_info_all: ")
                         self.logger.error(f"{self.robot.format_error(e)}")
+                        self.reconnect_after_timeout(e)
                         errors = []
                     # 制御プロセスのエラー検出と方法が違うので、
                     # 直後は状態プロセスでエラーが検出されないことがある
@@ -279,6 +309,7 @@ class Cobotta_Pro_MON:
                             self.logger.error(
                                 "Error in are_all_errors_stateless: ")
                             self.logger.error(f"{self.robot.format_error(e)}")
+                            self.reconnect_after_timeout(e)
                             error["auto_recoverable"] = False
                 else:
                     actual_joint_js["servo_mode"] = True
