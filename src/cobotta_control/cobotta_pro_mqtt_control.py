@@ -174,32 +174,6 @@ class Cobotta_Pro_MQTT:
         self.connect_mqtt()
 
 
-class Cobotta_Pro_Debug:
-    def setup_logger(self, log_queue):
-        self.logger = logging.getLogger("DBG")
-        if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
-        else:
-            handler = logging.StreamHandler()
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
-
-    def run_proc(self, monitor_dict, log_queue):
-        self.setup_logger(log_queue)
-        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
-        self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
-        while True:
-            diff = self.ar[6:12]-self.ar[0:6]
-            diff *=1000
-            diff = diff.astype('int')
-            self.logger.debug(f"State: {self.ar[0:6]}, Target: {self.ar[6:12]}")
-            self.logger.debug(f"Diff: {diff}")
-            sm = ",".join(str(int(round(x))) for x in self.ar)
-            self.logger.debug(f"SharedMemory (rounded): {sm}")
-            self.logger.debug(f"Monitor: {monitor_dict}")
-            time.sleep(2)
-
-
 class ProcessManager:
     def __init__(self):
         # mp.set_start_method('spawn')
@@ -269,14 +243,6 @@ class ProcessManager:
             name="Cobotta-Pro-control")
         self.ctrlP.start()
         self.state_control = True
-
-    def startDebug(self):
-        self.debug = Cobotta_Pro_Debug()
-        self.debugP = Process(
-            target=self.debug.run_proc,
-            args=(self.monitor_dict, self.log_queue),
-            name="Cobotta-Pro-debug")
-        self.debugP.start()
 
     def startMonitorGUI(self):
         self.monitor_guiP = Process(

@@ -118,8 +118,6 @@ class MQTTWin:
         self.setup_logger(log_queue=log_queue)
         self.logger.info("Starting Process!")
  
-        self.pm.startDebug()
- 
         self.root = root
         self.root.title("MQTT-CobottaPro900 Controller")
         self.root.geometry("1100x1080")
@@ -745,6 +743,20 @@ class MQTTWin:
             excess_lines = current_lines - 1000
             box.delete("1.0", f"{excess_lines}.0")
 
+    def on_closing(self):
+        """ウインドウを閉じるときの処理"""
+        if self.pm.state_control:
+            self.pm.stopControl()
+        if self.pm.state_recv_mqtt:
+            self.pm.stopRecvMQTT()
+        if self.pm.state_mqtt_control:
+            self.pm.stop_mqtt_control()
+        if self.pm.state_monitor:
+            self.pm.stopMonitor()
+        if self.use_joint_monitor_plot:
+            self.pm.stopMonitorGUI()
+        self.root.destroy()
+
 
 if __name__ == '__main__':
     # Freeze Support for Windows
@@ -781,4 +793,5 @@ if __name__ == '__main__':
     root = tk.Tk()
     mqwin = MQTTWin(root, **kwargs)
     mqwin.root.lift()
+    root.protocol("WM_DELETE_WINDOW", mqwin.on_closing)
     root.mainloop()
