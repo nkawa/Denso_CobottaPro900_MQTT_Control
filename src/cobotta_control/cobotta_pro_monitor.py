@@ -317,6 +317,9 @@ class Cobotta_Pro_MON:
                 actual_joint_js["mqtt_control"] = "OFF"
             else:
                 actual_joint_js["mqtt_control"] = "ON"
+            
+            area_enabled = bool(self.pose[31])
+            actual_joint_js["area_enabled"] = area_enabled
 
             if error:
                 actual_joint_js["error"] = error

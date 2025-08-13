@@ -837,6 +837,8 @@ class DensoRobot:
         self.manual_reset()
         # ティーチングペンダントのエラーをクリアする
         self.clear_error()
+        # 制御権を取得
+        self.take_arm()
         # モータをONにし、完了待ちする
         # 観測範囲では完了してもモータがONでないことがある
         self._bcap.robot_execute(self._hRob, "Motor", [1, 0])
@@ -1604,4 +1606,4 @@ class DensoRobot:
         <AreaNum> ： [in]エリア番号(VT_I4)
         戻り値 ： 有効/無効(VT_BOOL)
         """
-        return self._bcap.robot_execute(self._hRob, "SetAreaEnabled", [area_num])
+        return self._bcap.robot_execute(self._hRob, "GetAreaEnabled", [area_num])
