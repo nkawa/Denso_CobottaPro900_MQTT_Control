@@ -50,6 +50,39 @@ class ToolChangePopup(tk.Toplevel):
         self.destroy()
 
 
+class SetAreaPopup(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result = None
+        self.transient(parent)
+        self.grab_set()
+        self.title("Set Area")
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        tk.Label(self, text="Set Area:").pack(pady=10)
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(pady=5)
+        btn_true = tk.Button(btn_frame, text="Enable", width=10,
+                             command=lambda: self.button_pressed(True))
+        btn_true.pack(side=tk.LEFT, padx=5)
+        btn_false = tk.Button(btn_frame, text="Disable", width=10,
+                              command=lambda: self.button_pressed(False))
+        btn_false.pack(side=tk.LEFT, padx=5)
+        btn_cancel = tk.Button(btn_frame, text="Cancel", width=10,
+                               command=self.on_close)
+        btn_cancel.pack(side=tk.LEFT, padx=5)
+
+        self.wait_window()
+
+    def button_pressed(self, value):
+        self.result = value
+        self.destroy()
+
+    def on_close(self):
+        self.result = None
+        self.destroy()
+
+
 class GUILoggingHandler(logging.Handler):
     def __init__(self, gui: "MQTTWin") -> None:
         super().__init__()
@@ -110,6 +143,17 @@ class MQTTWin:
                        command=self.DemoPutDownBox, state="normal")
         self.button_DemoPutDownBox.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
 
+        self.frame_area_enabled = tk.Frame(self.root)
+        self.frame_area_enabled.grid(row=row,column=6,padx=2,pady=2,sticky="w", columnspan=2)
+        self.canvas_area_enabled = \
+            tk.Canvas(self.frame_area_enabled, width=10, height=10)
+        self.canvas_area_enabled.pack(side="left",padx=10)
+        self.light_area_enabled = \
+            self.canvas_area_enabled.create_oval(1, 1, 9, 9, fill="gray")
+        self.label_area_enabled = \
+            tk.Label(self.frame_area_enabled, text="AreaEnabled")
+        self.label_area_enabled.pack(side="left",padx=2)
+
         row += 1
 
         self.button_EnableRobot = \
@@ -140,10 +184,10 @@ class MQTTWin:
 
         row += 1
 
-        self.button_DefaultPose = \
-            tk.Button(self.root, text="DefaultPose", padx=5,
-                      command=self.DefaultPose, state="disabled")
-        self.button_DefaultPose.grid(row=row,column=0,padx=2,pady=2,sticky="ew", columnspan=2)
+        self.button_SetAreaEnabled = \
+            tk.Button(self.root, text="SetAreaEnabled", padx=5,
+                      command=self.SetArea, state="disabled")
+        self.button_SetAreaEnabled.grid(row=row,column=0,padx=2,pady=2,sticky="ew", columnspan=2)
 
         self.button_TidyPose = \
             tk.Button(self.root, text="TidyPose", padx=5,
@@ -497,7 +541,7 @@ class MQTTWin:
             self.pm.startMonitorGUI()
         self.button_ConnectRobot.config(state="disabled")
         self.button_ClearError.config(state="normal")
-        self.button_DefaultPose.config(state="normal")
+        self.button_SetAreaEnabled.config(state="normal")
         self.button_DisableRobot.config(state="normal")
         self.button_EnableRobot.config(state="normal")
         self.button_ReleaseHand.config(state="normal")
@@ -513,7 +557,7 @@ class MQTTWin:
         self.pm.startRecvMQTT()
         self.button_ConnectMQTT.config(state="disabled")
         self.button_ClearError.config(state="normal")
-        self.button_DefaultPose.config(state="normal")
+        self.button_SetAreaEnabled.config(state="normal")
         self.button_DisableRobot.config(state="normal")
         self.button_EnableRobot.config(state="normal")
         self.button_ReleaseHand.config(state="normal")
@@ -532,11 +576,15 @@ class MQTTWin:
             return
         self.pm.disable()
 
-    def DefaultPose(self):
+    def SetArea(self):
         if not self.pm.state_control:
             return
-        self.pm.default_pose()
-    
+        popup = SetAreaPopup(self.root)
+        enabled = popup.result
+        if enabled is None:
+            return
+        self.pm.set_area_enabled(enabled)
+
     def TidyPose(self):
         if not self.pm.state_control:
             return
@@ -611,6 +659,8 @@ class MQTTWin:
             self.update_topic(log_str, self.topic_monitors[topic_type])
 
             # 各情報をパース
+            color = "lime" if log.get("area_enabled") else "gray"
+            self.canvas_area_enabled.itemconfig(self.light_area_enabled, fill=color)
             color = "lime" if log.get("enabled") else "gray"
             self.canvas_enabled.itemconfig(self.light_enabled, fill=color)
             color = "lime" if log.get("mqtt_control") == "ON" else "gray"
@@ -694,7 +744,7 @@ class MQTTWin:
         if current_lines > 1000:
             excess_lines = current_lines - 1000
             box.delete("1.0", f"{excess_lines}.0")
-    
+
 
 if __name__ == '__main__':
     # Freeze Support for Windows

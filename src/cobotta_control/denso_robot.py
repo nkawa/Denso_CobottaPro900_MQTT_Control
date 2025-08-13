@@ -1606,4 +1606,4 @@ class DensoRobot:
         <AreaNum> ： [in]エリア番号(VT_I4)
         戻り値 ： 有効/無効(VT_BOOL)
         """
-        return self._bcap.robot_execute(self._hRob, "SetAreaEnabled", [area_num])
+        return self._bcap.robot_execute(self._hRob, "GetAreaEnabled", [area_num])

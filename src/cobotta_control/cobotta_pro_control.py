@@ -114,6 +114,8 @@ class Cobotta_Pro_CON:
             self.robot.start()
             self.robot.clear_error()
             self.robot.take_arm()
+            self.robot.SetAreaEnabled(0, True)
+            self.pose[31] = 1
             tool_id = int(os.environ["TOOL_ID"])
             self.find_and_setup_hand(tool_id)
         except Exception as e:
@@ -555,11 +557,12 @@ class Cobotta_Pro_CON:
             self.logger.error("Error disabling robot")
             self.logger.error(f"{self.robot.format_error(e)}")
 
-    def default_pose(self) -> None:
+    def set_area_enabled(self, enable: bool) -> None:
         try:
-            self.robot.move_joint_until_completion(self.default_joint)
+            self.robot.SetAreaEnabled(0, enable=enable)
+            self.pose[31] = int(enable)
         except Exception as e:
-            self.logger.error("Error moving to default pose")
+            self.logger.error("Error setting area enabled")
             self.logger.error(f"{self.robot.format_error(e)}")
 
     def tidy_pose(self) -> None:
@@ -786,6 +789,7 @@ class Cobotta_Pro_CON:
         self.robot.move_joint(self.tidy_joint)
         # ツールチェンジの場所が移動可能エリア外なので、エリア機能を無効にする
         self.robot.SetAreaEnabled(0, False)
+        self.pose[31] = 0
         # アームの先端の位置で制御する（現在のツールに依存しない）
         self.robot.set_tool(0)
 
@@ -886,6 +890,7 @@ class Cobotta_Pro_CON:
         self.robot.move_joint(self.tidy_joint)
         # エリア機能を有効にする
         self.robot.SetAreaEnabled(0, True)
+        self.pose[31] = 1
         if next_tool_info["id"] == 4:
             # tool_baseから箱の手前まで直接行くと台にぶつかりそうなので少し手前に移動
             # pose = [-302.96, -400.32, 831.60, -46.90, 88.37, -136.46]
@@ -1112,8 +1117,8 @@ class Cobotta_Pro_CON:
                 self.enable()
             elif command["command"] == "disable":
                 self.disable()
-            elif command["command"] == "default_pose":
-                self.default_pose()
+            elif command["command"] == "set_area_enabled":
+                self.set_area_enabled(**command["params"])
             elif command["command"] == "tidy_pose":
                 self.tidy_pose()
             elif command["command"] == "release_hand":

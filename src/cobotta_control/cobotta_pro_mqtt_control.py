@@ -223,6 +223,7 @@ class ProcessManager:
         # [22]: 棚の上の箱を作業台に置くデモの完了状態。0: 未定義。1: 成功。2: 失敗
         # [23]: 現在のツール番号
         # [24:30]: 関節の制御値
+        # [31]: エリア機能の有効/無効状態。0: 無効。1: 有効
         self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -293,8 +294,8 @@ class ProcessManager:
     def disable(self):
         self._send_command_to_control({"command": "disable"})
 
-    def default_pose(self):
-        self._send_command_to_control({"command": "default_pose"})
+    def set_area_enabled(self, enable: bool):
+        self._send_command_to_control({"command": "set_area_enabled", "params": {"enable": enable}})
 
     def tidy_pose(self):
         self._send_command_to_control({"command": "tidy_pose"})
