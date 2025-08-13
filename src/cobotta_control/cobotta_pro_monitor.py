@@ -107,15 +107,24 @@ class Cobotta_Pro_MON:
             else:
                 self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
-    def on_connect(self,client, userdata, flag, rc,proc):
-        self.logger.info("MQTT connected with result code: " + str(rc))  # 接続できた旨表示
-
-    def on_disconnect(self,client, userdata, rc):
-        if  rc != 0:
+    def on_connect(self, client, userdata, connect_flags, reason_code, properties):
+        # 接続できた旨表示
+        self.logger.info("MQTT connected with result code: " + str(reason_code))
+        
+    def on_disconnect(
+        self,
+        client,
+        userdata,
+        disconnect_flags,
+        reason_code,
+        properties,
+    ):
+        if reason_code != 0:
             self.logger.warning("MQTT unexpected disconnection.")
 
     def connect_mqtt(self):
-        self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+        self.client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         self.client.on_connect = self.on_connect         # 接続時のコールバック関数を登録
         self.client.on_disconnect = self.on_disconnect   # 切断時のコールバックを登録
         self.client.connect(MQTT_SERVER, 1883, 60)
@@ -358,6 +367,9 @@ class Cobotta_Pro_MON:
                 js = json.dumps(datum, ensure_ascii=False)
                 f.write(js + "\n")
 
+            if self.pose[32] == 1:
+                break
+
             t_elapsed = time.time() - now
             t_wait = T_INTV - t_elapsed
             if t_wait > 0:
@@ -366,17 +378,17 @@ class Cobotta_Pro_MON:
     def setup_logger(self, log_queue):
         self.logger = logging.getLogger("MON")
         if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
+            self.handler = logging.handlers.QueueHandler(log_queue)
         else:
-            handler = logging.StreamHandler()
-        self.logger.addHandler(handler)
+            self.handler = logging.StreamHandler()
+        self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
         self.robot_logger = logging.getLogger("MON-ROBOT")
         if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
+            self.robot_handler = logging.handlers.QueueHandler(log_queue)
         else:
-            handler = logging.StreamHandler()
-        self.robot_logger.addHandler(handler)
+            self.robot_handler = logging.StreamHandler()
+        self.robot_logger.addHandler(self.robot_handler)
         self.robot_logger.setLevel(logging.WARNING)
 
     def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
@@ -393,13 +405,18 @@ class Cobotta_Pro_MON:
         self.connect_mqtt()
         try:
             self.monitor_start()
-        except KeyboardInterrupt:
-            self.logger.info("Stop! Cobotta Pro monitor")
-            self.robot.disable()
-            self.robot.stop()
         except Exception as e:
             self.logger.error("Error in monitor")
             self.logger.error(f"{self.robot.format_error(e)}")
+        if self.pose[32] == 1:
+            self.client.loop_stop()
+            self.client.disconnect()
+            self.sm.close()
+            time.sleep(1)
+            self.logger.info("Process stopped")
+            self.handler.close()
+            self.robot_handler.close()
+
 
 if __name__ == '__main__':
     cp = Cobotta_Pro_MON()

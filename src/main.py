@@ -2,6 +2,7 @@ import datetime
 import logging
 import json
 import logging.handlers
+import time
 import tkinter as tk
 import multiprocessing
 from tkinter import scrolledtext
@@ -87,6 +88,7 @@ class GUILoggingHandler(logging.Handler):
     def __init__(self, gui: "MQTTWin") -> None:
         super().__init__()
         self.gui = gui
+        self._closed = False
     
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -95,6 +97,12 @@ class GUILoggingHandler(logging.Handler):
             self.gui.root.after(0, self.gui.update_log, msg)
         except Exception:
             self.handleError(record)
+
+    def close(self) -> None:
+        # 並列処理時のログハンドラの多重closeを防ぐ
+        if not self._closed:
+            super().close()
+            self._closed = True
 
 
 class MicrosecondFormatter(logging.Formatter):
@@ -513,10 +521,10 @@ class MQTTWin:
         )
         for handler in handlers:
             handler.setFormatter(formatter)
-        listener = logging.handlers.QueueListener(log_queue, *handlers)
+        self.listener = logging.handlers.QueueListener(log_queue, *handlers)
         # listener.startからroot.mainloopまでのわずかな間は、
         # GUIの更新がないが、root.mainloopが始まると溜まっていたログも表示される
-        listener.start()
+        self.listener.start()
 
     def setup_logger(
         self, log_queue: Optional[multiprocessing.Queue] = None,
@@ -524,10 +532,10 @@ class MQTTWin:
         """GUIプロセスからのログの設定"""
         self.logger = logging.getLogger("GUI")
         if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
+            self.handler = logging.handlers.QueueHandler(log_queue)
         else:
-            handler = logging.StreamHandler()
-        self.logger.addHandler(handler)
+            self.handler = logging.StreamHandler()
+        self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
 
     def ConnectRobot(self):
@@ -745,17 +753,12 @@ class MQTTWin:
 
     def on_closing(self):
         """ウインドウを閉じるときの処理"""
-        if self.pm.state_control:
-            self.pm.stopControl()
-        if self.pm.state_recv_mqtt:
-            self.pm.stopRecvMQTT()
-        if self.pm.state_mqtt_control:
-            self.pm.stop_mqtt_control()
-        if self.pm.state_monitor:
-            self.pm.stopMonitor()
-        if self.use_joint_monitor_plot:
-            self.pm.stopMonitorGUI()
+        self.pm.stop_all_processes()
+        time.sleep(1)
         self.root.destroy()
+        self.handler.close()
+        self.listener.stop()
+        logging.shutdown()
 
 
 if __name__ == '__main__':

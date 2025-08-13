@@ -1100,17 +1100,17 @@ class Cobotta_Pro_CON:
     def setup_logger(self, log_queue):
         self.logger = logging.getLogger("CTRL")
         if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
+            self.handler = logging.handlers.QueueHandler(log_queue)
         else:
-            handler = logging.StreamHandler()
-        self.logger.addHandler(handler)
+            self.handler = logging.StreamHandler()
+        self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
         self.robot_logger = logging.getLogger("CTRL-ROBOT")
         if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
+            self.robot_handler = logging.handlers.QueueHandler(log_queue)
         else:
-            handler = logging.StreamHandler()
-        self.robot_logger.addHandler(handler)
+            self.robot_handler = logging.StreamHandler()
+        self.robot_logger.addHandler(self.robot_handler)
         self.robot_logger.setLevel(logging.WARNING)
 
     def run_proc(self, control_pipe, slave_mode_lock, log_queue):
@@ -1123,28 +1123,37 @@ class Cobotta_Pro_CON:
         self.init_robot()
         self.init_realtime()
         while True:
-            command = control_pipe.recv()
-            if command["command"] == "enable":
-                self.enable()
-            elif command["command"] == "disable":
-                self.disable()
-            elif command["command"] == "set_area_enabled":
-                self.set_area_enabled(**command["params"])
-            elif command["command"] == "tidy_pose":
-                self.tidy_pose()
-            elif command["command"] == "release_hand":
-                self.send_release()
-            elif command["command"] == "clear_error":
-                self.clear_error()
-            elif command["command"] == "start_mqtt_control":
-                self.mqtt_control_loop()
-            elif command["command"] == "tool_change":
-                self.tool_change_not_in_rt()
-            elif command["command"] == "jog_joint":
-                self.jog_joint(**command["params"])
-            elif command["command"] == "jog_tcp":
-                self.jog_tcp(**command["params"])
-            elif command["command"] == "demo_put_down_box":
-                self.demo_put_down_box()
-            else:
-                self.logger.warning(f"Unknown command: {command['command']}")
+            if control_pipe.poll(timeout=1):
+                command = control_pipe.recv()
+                if command["command"] == "enable":
+                    self.enable()
+                elif command["command"] == "disable":
+                    self.disable()
+                elif command["command"] == "set_area_enabled":
+                    self.set_area_enabled(**command["params"])
+                elif command["command"] == "tidy_pose":
+                    self.tidy_pose()
+                elif command["command"] == "release_hand":
+                    self.send_release()
+                elif command["command"] == "clear_error":
+                    self.clear_error()
+                elif command["command"] == "start_mqtt_control":
+                    self.mqtt_control_loop()
+                elif command["command"] == "tool_change":
+                    self.tool_change_not_in_rt()
+                elif command["command"] == "jog_joint":
+                    self.jog_joint(**command["params"])
+                elif command["command"] == "jog_tcp":
+                    self.jog_tcp(**command["params"])
+                elif command["command"] == "demo_put_down_box":
+                    self.demo_put_down_box()
+                else:
+                    self.logger.warning(
+                        f"Unknown command: {command['command']}")
+            if self.pose[32] == 1:
+                self.sm.close()
+                time.sleep(1)
+                self.logger.info("Process stopped")
+                self.handler.close()
+                self.robot_handler.close()
+                break
