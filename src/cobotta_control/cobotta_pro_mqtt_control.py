@@ -167,8 +167,8 @@ class Cobotta_Pro_MQTT:
     def run_proc(self, mqtt_control_dict, mqtt_control_lock, log_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
-        self.sm = mp.shared_memory.SharedMemory("cobotta_pro")
-        self.pose = np.ndarray((32,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         self.mqtt_control_dict = mqtt_control_dict
         self.mqtt_control_lock = mqtt_control_lock
         self.connect_mqtt()
