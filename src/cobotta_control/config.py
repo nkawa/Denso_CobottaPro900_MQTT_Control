@@ -1,4 +1,4 @@
 SHM_NAME = "cobotta_pro"
-SHM_SIZE = 32
+SHM_SIZE = 48
 ABS_JOINT_LIMIT = [270, 150, 150, 270, 150, 360]
 T_INTV = 0.008

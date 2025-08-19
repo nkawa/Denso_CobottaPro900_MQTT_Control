@@ -104,6 +104,9 @@ class JointMonitorPlot(QtWidgets.QWidget):
         for i in range(self.n_joints):
             for k in self.ydata:
                 self.curves[i][k].setData(x, y[k][i])
+        if self.pose[32] == 1:
+            self.shm.close()
+            time.sleep(1)
 
 
 def run_joint_monitor_gui():

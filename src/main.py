@@ -2,6 +2,7 @@ import datetime
 import logging
 import json
 import logging.handlers
+import time
 import tkinter as tk
 import multiprocessing
 from tkinter import scrolledtext
@@ -87,6 +88,7 @@ class GUILoggingHandler(logging.Handler):
     def __init__(self, gui: "MQTTWin") -> None:
         super().__init__()
         self.gui = gui
+        self._closed = False
     
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -95,6 +97,12 @@ class GUILoggingHandler(logging.Handler):
             self.gui.root.after(0, self.gui.update_log, msg)
         except Exception:
             self.handleError(record)
+
+    def close(self) -> None:
+        # 並列処理時のログハンドラの多重closeを防ぐ
+        if not self._closed:
+            super().close()
+            self._closed = True
 
 
 class MicrosecondFormatter(logging.Formatter):
@@ -117,8 +125,6 @@ class MQTTWin:
         self.setup_logging(log_queue=log_queue)
         self.setup_logger(log_queue=log_queue)
         self.logger.info("Starting Process!")
- 
-        self.pm.startDebug()
  
         self.root = root
         self.root.title("MQTT-CobottaPro900 Controller")
@@ -515,10 +521,10 @@ class MQTTWin:
         )
         for handler in handlers:
             handler.setFormatter(formatter)
-        listener = logging.handlers.QueueListener(log_queue, *handlers)
+        self.listener = logging.handlers.QueueListener(log_queue, *handlers)
         # listener.startからroot.mainloopまでのわずかな間は、
         # GUIの更新がないが、root.mainloopが始まると溜まっていたログも表示される
-        listener.start()
+        self.listener.start()
 
     def setup_logger(
         self, log_queue: Optional[multiprocessing.Queue] = None,
@@ -526,10 +532,10 @@ class MQTTWin:
         """GUIプロセスからのログの設定"""
         self.logger = logging.getLogger("GUI")
         if log_queue is not None:
-            handler = logging.handlers.QueueHandler(log_queue)
+            self.handler = logging.handlers.QueueHandler(log_queue)
         else:
-            handler = logging.StreamHandler()
-        self.logger.addHandler(handler)
+            self.handler = logging.StreamHandler()
+        self.logger.addHandler(self.handler)
         self.logger.setLevel(logging.INFO)
 
     def ConnectRobot(self):
@@ -745,6 +751,15 @@ class MQTTWin:
             excess_lines = current_lines - 1000
             box.delete("1.0", f"{excess_lines}.0")
 
+    def on_closing(self):
+        """ウインドウを閉じるときの処理"""
+        self.pm.stop_all_processes()
+        time.sleep(1)
+        self.root.destroy()
+        self.handler.close()
+        self.listener.stop()
+        logging.shutdown()
+
 
 if __name__ == '__main__':
     # Freeze Support for Windows
@@ -781,4 +796,5 @@ if __name__ == '__main__':
     root = tk.Tk()
     mqwin = MQTTWin(root, **kwargs)
     mqwin.root.lift()
+    root.protocol("WM_DELETE_WINDOW", mqwin.on_closing)
     root.mainloop()
