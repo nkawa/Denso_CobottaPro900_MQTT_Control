@@ -324,6 +324,11 @@ class ProcessManager:
             self.ctrlP.join()
         if self.monitor_guiP is not None:
             self.monitor_guiP.join()
+        self.sm.close()
+        self.sm.unlink()
+        self.manager.shutdown()
+        self.main_pipe.close()
+        self.control_pipe.close()
 
     def _send_command_to_control(self, command):
         self.main_pipe.send(command)
@@ -376,10 +381,3 @@ class ProcessManager:
         with self.mqtt_control_lock:
             mqtt_control_dict = self.mqtt_control_dict.copy()
         return mqtt_control_dict
-
-    def __del__(self):
-        self.sm.close()
-        self.sm.unlink()
-        self.manager.shutdown()
-        self.main_pipe.close()
-        self.control_pipe.close()
