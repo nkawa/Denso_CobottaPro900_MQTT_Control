@@ -123,7 +123,8 @@ class MQTTWin:
         self.use_joint_monitor_plot = use_joint_monitor_plot
         self.pm = ProcessManager()
         log_queue = self.pm.log_queue
-        self.setup_logging(log_queue=log_queue)
+        self.logging_dir = self.get_logging_dir()
+        self.setup_logging(log_queue=log_queue, logging_dir=self.logging_dir)
         self.setup_logger(log_queue=log_queue)
         self.gui_log_queue = queue.Queue()
         self.logger.info("Starting Process!")
@@ -244,6 +245,12 @@ class MQTTWin:
                       command=self.ToolChange, state="disabled")
 #        self.button_ToolChange.grid(
 #            row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+
+        self.button_ChangeLogFile = \
+            tk.Button(self.root, text="ChangeLogFile", padx=5,
+                    command=self.ChangeLogFile, state="normal")
+        self.button_ChangeLogFile.grid(
+            row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)        
 
         self.frame_mqtt_control = tk.Frame(self.root)
         self.frame_mqtt_control.grid(row=row,column=6,padx=2,pady=2,sticky="w", columnspan=2)
@@ -517,13 +524,27 @@ class MQTTWin:
         self.update_monitor()
         self.start_update_gui_log()
 
+    def get_logging_dir(self):
+        now = datetime.datetime.now()
+        log_dir = "log"
+        os.makedirs(log_dir, exist_ok=True)
+        date_str = now.strftime("%Y-%m-%d")
+        os.makedirs(os.path.join(log_dir, date_str), exist_ok=True)
+        time_str = now.strftime("%H-%M-%S")
+        logging_dir = os.path.join(log_dir, date_str, time_str)
+        os.makedirs(logging_dir, exist_ok=True)
+        return logging_dir
+
     def setup_logging(
-        self, log_queue: Optional[multiprocessing.Queue] = None,
+        self,
+        log_queue: Optional[multiprocessing.Queue] = None,
+        logging_dir: Optional[str] = None,
     ) -> None:
         """複数プロセスからのログを集約する方法を設定する"""
-        t_start_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        if logging_dir is None:
+            logging_dir = self.get_logging_dir()
         handlers = [
-            logging.FileHandler(t_start_str + "_log.txt"),
+            logging.FileHandler(os.path.join(logging_dir, "log.txt")),
             logging.StreamHandler(),
         ]
         if log_queue is not None:
@@ -554,8 +575,8 @@ class MQTTWin:
     def ConnectRobot(self):
         if self.pm.state_control and self.pm.state_monitor:
             return
-        self.pm.startControl()
-        self.pm.startMonitor()
+        self.pm.startControl(logging_dir=self.logging_dir)
+        self.pm.startMonitor(logging_dir=self.logging_dir)
         if self.use_joint_monitor_plot:
             self.pm.startMonitorGUI()
         self.button_ConnectRobot.config(state="disabled")
@@ -670,7 +691,23 @@ class MQTTWin:
         
     def DisconnectMQTT(self):
         print("Disconnect MQTT!!")
-        
+
+    def ChangeLogFile(self):
+        if getattr(self, "listener", None) is not None:
+            self.listener.stop()
+        logging_dir = self.get_logging_dir()
+        self.pm.change_log_file(logging_dir)
+        # ここでのロガーメッセージが古いファイルか新しいファイルに記録されるかは
+        # タイミングによって異なることがある
+        self.logger.info(f"Change log directory to {logging_dir}")
+        self.logger.info("Change log file")
+        # サブプロセスの制御値、状態値のファイルの保存先の変更完了を待つ
+        while True:
+            if self.pm.ar[33] == 0 and self.pm.ar[34] == 0:
+                break
+            time.sleep(0.1)
+        self.setup_logging(
+            log_queue=self.pm.log_queue, logging_dir=logging_dir)
 
     def update_gui_log(self):
         while True:
