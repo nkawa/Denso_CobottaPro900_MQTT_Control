@@ -351,8 +351,8 @@ class MQTTWin:
 
         row += 1
 
-#        tk.Label(self.root, text="State").grid(
-#            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=4)
+        tk.Label(self.root, text="State").grid(
+            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=4)
         self.string_var_states = {}
         for i in range(6):
             frame_state = tk.Frame(self.root)
@@ -408,8 +408,8 @@ class MQTTWin:
             )
             text_box_state.pack(side="right", padx=2, expand=True, fill="x")
 
-#        tk.Label(self.root, text="Target").grid(
-#            row=row, column=4, padx=2, pady=2, sticky="w", columnspan=4)
+        tk.Label(self.root, text="Target").grid(
+            row=row, column=4, padx=2, pady=2, sticky="w", columnspan=4)
         self.string_var_targets = {}
         for i in range(6):
             frame_target = tk.Frame(self.root)
@@ -515,7 +515,7 @@ class MQTTWin:
         tk.Label(self.root, text="Log Monitor").grid(
             row=row, column=0, padx=2, pady=2, sticky="w", columnspan=8)
         self.log_monitor = scrolledtext.ScrolledText(
-            self.root, height=8)
+            self.root, height=10)
         self.log_monitor.grid(
             row=row+1,column=0,padx=2,pady=2,columnspan=8, sticky="nsew")
         self.log_monitor.tag_config("INFO", foreground="black")
