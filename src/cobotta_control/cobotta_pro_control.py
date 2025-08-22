@@ -218,10 +218,10 @@ class Cobotta_Pro_CON:
 
             # TODO: VR側でもソフトリミットを設定したほうが良い
             target_th = np.maximum(target, -abs_joint_soft_limit)
-            if (target == target_th).any():
+            if (target != target_th).any():
                 self.logger.warning("target reached minimum threshold")
             target_th = np.minimum(target_th, abs_joint_soft_limit)
-            if (target == target_th).any():
+            if (target != target_th).any():
                 self.logger.warning("target reached maximum threshold")
             target = target_th
 
