@@ -149,7 +149,14 @@ class MQTTWin:
         self.button_DemoPutDownBox = \
             tk.Button(self.root, text="DemoPutDownBox", padx=5,
                        command=self.DemoPutDownBox, state="normal")
-        self.button_DemoPutDownBox.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+#        self.button_DemoPutDownBox.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+
+        self.button_DisconnectMQTT = \
+            tk.Button(self.root, text="DisconnectMQTT", padx=5,
+                       command=self.DisconnectMQTT, state="disabled")
+        self.button_DisconnectMQTT.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+
+
 
         self.frame_area_enabled = tk.Frame(self.root)
         self.frame_area_enabled.grid(row=row,column=6,padx=2,pady=2,sticky="w", columnspan=2)
@@ -177,7 +184,7 @@ class MQTTWin:
         self.button_ReleaseHand = \
             tk.Button(self.root, text="ReleaseHand", padx=5,
                       command=self.ReleaseHand, state="disabled")
-        self.button_ReleaseHand.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+#        self.button_ReleaseHand.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
 
         self.frame_enabled = tk.Frame(self.root)
         self.frame_enabled.grid(row=row,column=6,padx=2,pady=2,sticky="w", columnspan=2)
@@ -235,8 +242,8 @@ class MQTTWin:
         self.button_ToolChange = \
             tk.Button(self.root, text="ToolChange", padx=5,
                       command=self.ToolChange, state="disabled")
-        self.button_ToolChange.grid(
-            row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+#        self.button_ToolChange.grid(
+#            row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
 
         self.frame_mqtt_control = tk.Frame(self.root)
         self.frame_mqtt_control.grid(row=row,column=6,padx=2,pady=2,sticky="w", columnspan=2)
@@ -337,8 +344,8 @@ class MQTTWin:
 
         row += 1
 
-        tk.Label(self.root, text="State").grid(
-            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=4)
+#        tk.Label(self.root, text="State").grid(
+#            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=4)
         self.string_var_states = {}
         for i in range(6):
             frame_state = tk.Frame(self.root)
@@ -394,8 +401,8 @@ class MQTTWin:
             )
             text_box_state.pack(side="right", padx=2, expand=True, fill="x")
 
-        tk.Label(self.root, text="Target").grid(
-            row=row, column=4, padx=2, pady=2, sticky="w", columnspan=4)
+#        tk.Label(self.root, text="Target").grid(
+#            row=row, column=4, padx=2, pady=2, sticky="w", columnspan=4)
         self.string_var_targets = {}
         for i in range(6):
             frame_target = tk.Frame(self.root)
@@ -435,8 +442,8 @@ class MQTTWin:
 
         row += 8
 
-        tk.Label(self.root, text="Topics").grid(
-            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=8)
+#        tk.Label(self.root, text="Topics").grid(
+#            row=row, column=0, padx=2, pady=10, sticky="w", columnspan=8)
         topic_types = [
             "mgr/register",
             "dev",
@@ -568,6 +575,9 @@ class MQTTWin:
             return
         self.pm.startRecvMQTT()
         self.button_ConnectMQTT.config(state="disabled")
+        self.button_DisconnectMQTT.config(state="normal")
+
+        
         self.button_ClearError.config(state="normal")
         self.button_SetAreaEnabled.config(state="normal")
         self.button_DisableRobot.config(state="normal")
@@ -657,6 +667,10 @@ class MQTTWin:
         if not self.pm.state_control:
             return
         self.pm.demo_put_down_box()
+        
+    def DisconnectMQTT(self):
+        print("Disconnect MQTT!!")
+        
 
     def update_gui_log(self):
         while True:
