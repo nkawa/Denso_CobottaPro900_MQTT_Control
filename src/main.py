@@ -130,7 +130,7 @@ class MQTTWin:
  
         self.root = root
         self.root.title("MQTT-CobottaPro900 Controller")
-        self.root.geometry("1100x1080")
+        self.root.geometry("1100x1000")
 
         for col in range(8):
             self.root.grid_columnconfigure(col, weight=1, uniform="equal")
@@ -470,8 +470,11 @@ class MQTTWin:
             frame_topic.grid(
                 row=row+2+3*i, column=0, padx=2, pady=2,
                 sticky="ew", columnspan=8, rowspan=2)
+            height = 3
+            if topic_type in ["mgr/register", "dev"]:
+                height = 2
             self.topic_monitors[topic_type] = scrolledtext.ScrolledText(
-                frame_topic, height=3)
+                frame_topic, height=height)
             self.topic_monitors[topic_type].pack(
                 side="left", padx=2, expand=True, fill="both")
 
@@ -498,7 +501,7 @@ class MQTTWin:
         tk.Label(self.root, text="Log Monitor").grid(
             row=row, column=0, padx=2, pady=2, sticky="w", columnspan=8)
         self.log_monitor = scrolledtext.ScrolledText(
-            self.root, height=10)
+            self.root, height=8)
         self.log_monitor.grid(
             row=row+1,column=0,padx=2,pady=2,columnspan=8, sticky="nsew")
         self.log_monitor.tag_config("INFO", foreground="black")
