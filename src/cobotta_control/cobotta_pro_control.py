@@ -219,12 +219,10 @@ class Cobotta_Pro_CON:
             # TODO: VR側でもソフトリミットを設定したほうが良い
             target_th = np.maximum(target, -abs_joint_soft_limit)
             if (target == target_th).any():
-                pass
-                # self.logger.warning("target reached minimum threshold")
+                self.logger.warning("target reached minimum threshold")
             target_th = np.minimum(target_th, abs_joint_soft_limit)
             if (target == target_th).any():
-                pass
-                # self.logger.warning("target reached maximum threshold")
+                self.logger.warning("target reached maximum threshold")
             target = target_th
 
             # 目標値が状態値から大きく離れた場合は制御を停止する
@@ -437,46 +435,36 @@ class Cobotta_Pro_CON:
             if f is not None:
                 # 分析用データ保存
                 datum = dict(
-                    kind="state",
-                    joint=state.tolist(),
                     time=now,
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
-
-                datum = dict(
                     kind="target",
                     joint=target_raw.tolist(),
-                    time=now,
                 )
                 js = json.dumps(datum)
                 f.write(js + "\n")
 
                 datum = dict(
-                    kind="target_th",
-                    joint=target_th.tolist(),
                     time=now,
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
-
-                datum = dict(
                     kind="target_delayed",
                     joint=target_delayed.tolist(),
-                    time=now,
                 )
                 js = json.dumps(datum)
                 f.write(js + "\n")
 
                 datum = dict(
+                    time=now,
                     kind="control",
                     joint=control.tolist(),
-                    time=now,
                     max_ratio=max_ratio,
                     accel_max_ratio=accel_max_ratio,
                 )
                 js = json.dumps(datum)
                 f.write(js + "\n")
+
+            t_elapsed = time.time() - now
+            if t_elapsed > t_intv * 2:
+                self.logger.warning(
+                    f"Control loop is 2 times as slow as expected before command: "
+                    f"{t_elapsed} seconds")
 
             if move_robot:
                 try:
@@ -512,7 +500,7 @@ class Cobotta_Pro_CON:
             t_elapsed = time.time() - now
             if t_elapsed > t_intv * 2:
                 self.logger.warning(
-                    f"Control loop is 2 times as slow as expected: "
+                    f"Control loop is 2 times as slow as expected after command: "
                     f"{t_elapsed} seconds")
 
             if stop:

@@ -355,6 +355,7 @@ class Cobotta_Pro_MON:
             # それ以外の時のエラーはstate情報は必要ないと考えたため
             if f is not None and self.pose[15] == 1:
                 datum = dict(
+                    time=now,
                     kind="state",
                     joint=actual_joint,
                     pose=actual_tcp_pose,
@@ -362,7 +363,6 @@ class Cobotta_Pro_MON:
                     force=force,
                     forces=forces,
                     error=error,
-                    time=now,
                     enabled=enabled,
                     # TypeError: Object of type float32 is not JSON
                     # serializableへの対応
