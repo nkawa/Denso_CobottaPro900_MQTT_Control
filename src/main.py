@@ -248,7 +248,7 @@ class MQTTWin:
 
         self.button_ChangeLogFile = \
             tk.Button(self.root, text="ChangeLogFile", padx=5,
-                    command=self.ChangeLogFile, state="normal")
+                    command=self.ChangeLogFile, state="disabled")
         self.button_ChangeLogFile.grid(
             row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)        
 
@@ -587,6 +587,7 @@ class MQTTWin:
         self.button_ReleaseHand.config(state="normal")
         self.button_TidyPose.config(state="normal")
         self.button_ToolChange.config(state="normal")
+        self.button_ChangeLogFile.config(state="normal")
         if self.pm.state_recv_mqtt:
             self.button_StartMQTTControl.config(state="normal")
             self.button_StopMQTTControl.config(state="normal")
