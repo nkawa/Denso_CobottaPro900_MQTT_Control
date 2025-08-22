@@ -2,6 +2,8 @@ import datetime
 import logging
 import json
 import logging.handlers
+import queue
+import threading
 import time
 import tkinter as tk
 import multiprocessing
@@ -93,8 +95,7 @@ class GUILoggingHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            # GUIはメインスレッドで更新する
-            self.gui.root.after(0, self.gui.update_log, msg)
+            self.gui.gui_log_queue.put(msg, block=True, timeout=None)
         except Exception:
             self.handleError(record)
 
@@ -124,6 +125,7 @@ class MQTTWin:
         log_queue = self.pm.log_queue
         self.setup_logging(log_queue=log_queue)
         self.setup_logger(log_queue=log_queue)
+        self.gui_log_queue = queue.Queue()
         self.logger.info("Starting Process!")
  
         self.root = root
@@ -503,6 +505,7 @@ class MQTTWin:
         self.log_monitor.tag_config("WARNING", foreground="orange")
         self.log_monitor.tag_config("ERROR", foreground="red")
         self.update_monitor()
+        self.start_update_gui_log()
 
     def setup_logging(
         self, log_queue: Optional[multiprocessing.Queue] = None,
@@ -652,6 +655,21 @@ class MQTTWin:
             return
         self.pm.demo_put_down_box()
 
+    def update_gui_log(self):
+        while True:
+            msg = self.gui_log_queue.get(block=True, timeout=None)
+            # WM_DELETE_WINDOW後はハングアップする
+            # 直接GUILoggingHandlerから呼び出しLoggingがハングアップすると
+            # スレッドをjoinにより安全に終了できなくなるため
+            # queueを経由して別スレッドで呼び出す
+            # このスレッドはデーモンスレッドなのでjoinしなくても問題ない
+            self.root.after(0, self.update_log, msg)
+
+    def start_update_gui_log(self):
+        self.update_gui_log_thread = threading.Thread(
+            target=self.update_gui_log, daemon=True)
+        self.update_gui_log_thread.start()
+
     def update_monitor(self):
         # モニタープロセスからの情報
         log = self.pm.get_current_monitor_log()
@@ -755,10 +773,10 @@ class MQTTWin:
         """ウインドウを閉じるときの処理"""
         self.pm.stop_all_processes()
         time.sleep(1)
-        self.root.destroy()
-        self.handler.close()
         self.listener.stop()
+        self.handler.close()
         logging.shutdown()
+        self.root.destroy()
 
 
 if __name__ == '__main__':
