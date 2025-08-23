@@ -1,7 +1,7 @@
 # Cobotta Pro の状態をモニタリングする
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TextIO
 from paho.mqtt import client as mqtt
 from bcap_python.orinexception import HResult, ORiNException
 from cobotta_control.config import SHM_NAME, SHM_SIZE, T_INTV
@@ -36,9 +36,7 @@ SAVE = os.getenv("SAVE", "true") == "true"
 
 # 基本的に運用時には固定するパラメータ
 save_state = SAVE
-if save_state:
-    save_path = datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_status.jsonl"
-    f = open(save_path, "w")
+
 
 class Cobotta_Pro_MON:
     def __init__(self):
@@ -135,12 +133,16 @@ class Cobotta_Pro_MON:
         return [tool_info for tool_info in tool_infos
                 if tool_info["id"] == tool_id][0]
 
-    def monitor_start(self):
+    def monitor_start(self, f: TextIO | None = None):
         last = 0
         last_error_monitored = 0
         is_in_tool_change = False
         is_put_down_box = False
         while True:
+            # ログファイル変更時
+            if self.pose[34] == 1:
+                return True
+
             now = time.time()
             if last == 0:
                 last = now
@@ -349,8 +351,11 @@ class Cobotta_Pro_MON:
                     self.monitor_dict.update(actual_joint_js)
                 last = now
 
-            if save_state:
+            # MQTT手動制御モード時のみ記録する
+            # それ以外の時のエラーはstate情報は必要ないと考えたため
+            if f is not None and self.pose[15] == 1:
                 datum = dict(
+                    time=now,
                     kind="state",
                     joint=actual_joint,
                     pose=actual_tcp_pose,
@@ -358,7 +363,6 @@ class Cobotta_Pro_MON:
                     force=force,
                     forces=forces,
                     error=error,
-                    time=now,
                     enabled=enabled,
                     # TypeError: Object of type float32 is not JSON
                     # serializableへの対応
@@ -368,7 +372,7 @@ class Cobotta_Pro_MON:
                 f.write(js + "\n")
 
             if self.pose[32] == 1:
-                break
+                return False
 
             t_elapsed = time.time() - now
             t_wait = T_INTV - t_elapsed
@@ -391,7 +395,14 @@ class Cobotta_Pro_MON:
         self.robot_logger.addHandler(self.robot_handler)
         self.robot_logger.setLevel(logging.WARNING)
 
-    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue):
+    def get_logging_dir_and_change_log_file(self) -> None:
+        command = self.monitor_pipe.recv()
+        logging_dir = command["params"]["logging_dir"]
+        self.logger.info("Change log file")
+        self.logging_dir = logging_dir
+        self.pose[34] = 0
+
+    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue, monitor_pipe, logging_dir):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
@@ -399,23 +410,35 @@ class Cobotta_Pro_MON:
         self.monitor_dict = monitor_dict
         self.monitor_lock = monitor_lock
         self.slave_mode_lock = slave_mode_lock
+        self.monitor_pipe = monitor_pipe
+        self.logging_dir = logging_dir
 
         self.init_realtime()
         self.init_robot()
         self.connect_mqtt()
-        try:
-            self.monitor_start()
-        except Exception as e:
-            self.logger.error("Error in monitor")
-            self.logger.error(f"{self.robot.format_error(e)}")
-        if self.pose[32] == 1:
-            self.client.loop_stop()
-            self.client.disconnect()
-            self.sm.close()
-            time.sleep(1)
-            self.logger.info("Process stopped")
-            self.handler.close()
-            self.robot_handler.close()
+        while True:
+            try:
+                if save_state:
+                    with open(
+                        os.path.join(self.logging_dir, "state.jsonl"), "a"
+                    ) as f:
+                        will_change_log_file = self.monitor_start(f)
+                else:
+                    will_change_log_file = self.monitor_start()
+                if will_change_log_file:
+                    self.get_logging_dir_and_change_log_file()
+            except Exception as e:
+                self.logger.error("Error in monitor")
+                self.logger.error(f"{self.robot.format_error(e)}")
+            if self.pose[32] == 1:
+                self.client.loop_stop()
+                self.client.disconnect()
+                self.sm.close()
+                time.sleep(1)
+                self.logger.info("Process stopped")
+                self.handler.close()
+                self.robot_handler.close()
+                break
 
 
 if __name__ == '__main__':

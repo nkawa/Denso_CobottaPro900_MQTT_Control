@@ -254,6 +254,8 @@ class ProcessManager:
         # [24:30]: 関節の制御値
         # [31]: エリア機能の有効/無効状態。0: 無効。1: 有効
         # [32]: プロセス終了フラグ
+        # [33]: ログ出力先の変更フラグ(control用)
+        # [34]: ログ出力先の変更フラグ(monitor用)
         self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -262,7 +264,8 @@ class ProcessManager:
         self.mqtt_control_dict = self.manager.dict()
         self.mqtt_control_lock = self.manager.Lock()
         self.slave_mode_lock = multiprocessing.Lock()
-        self.main_pipe, self.control_pipe = multiprocessing.Pipe()
+        self.main_to_control_pipe, self.control_pipe = multiprocessing.Pipe()
+        self.main_to_monitor_pipe, self.monitor_pipe = multiprocessing.Pipe()
         self.state_recv_mqtt = False
         self.state_monitor = False
         self.state_control = False
@@ -284,23 +287,25 @@ class ProcessManager:
         self.recvP.start()
         self.state_recv_mqtt = True
 
-    def startMonitor(self):
+    def startMonitor(self, logging_dir: str | None = None):
         self.mon = Cobotta_Pro_MON()
         self.monP = Process(
             target=self.mon.run_proc,
             args=(self.monitor_dict,
                   self.monitor_lock,
                   self.slave_mode_lock,
-                  self.log_queue),
+                  self.log_queue,
+                  self.monitor_pipe,
+                  logging_dir),
             name="Cobotta-Pro-monitor")
         self.monP.start()
         self.state_monitor = True
 
-    def startControl(self):
+    def startControl(self, logging_dir: str | None = None):
         self.ctrl = Cobotta_Pro_CON()
         self.ctrlP = Process(
             target=self.ctrl.run_proc,
-            args=(self.control_pipe, self.slave_mode_lock, self.log_queue),
+            args=(self.control_pipe, self.slave_mode_lock, self.log_queue, logging_dir),
             name="Cobotta-Pro-control")
         self.ctrlP.start()
         self.state_control = True
@@ -324,9 +329,19 @@ class ProcessManager:
             self.ctrlP.join()
         if self.monitor_guiP is not None:
             self.monitor_guiP.join()
+        self.sm.close()
+        self.sm.unlink()
+        self.manager.shutdown()
+        self.main_to_control_pipe.close()
+        self.control_pipe.close()
+        self.main_to_monitor_pipe.close()
+        self.monitor_pipe.close()
 
     def _send_command_to_control(self, command):
-        self.main_pipe.send(command)
+        self.main_to_control_pipe.send(command)
+
+    def _send_command_to_monitor(self, command):
+        self.main_to_monitor_pipe.send(command)
 
     def enable(self):
         self._send_command_to_control({"command": "enable"})
@@ -377,9 +392,12 @@ class ProcessManager:
             mqtt_control_dict = self.mqtt_control_dict.copy()
         return mqtt_control_dict
 
-    def __del__(self):
-        self.sm.close()
-        self.sm.unlink()
-        self.manager.shutdown()
-        self.main_pipe.close()
-        self.control_pipe.close()
+    def change_log_file(self, logging_dir: str):
+        # モニタプロセス
+        self.ar[34] = 1
+        self._send_command_to_monitor({"command": "change_log_file", "params": {"logging_dir": logging_dir}})
+        # 制御プロセス
+        self.ar[33] = 1
+        self._send_command_to_control({"command": "change_log_file", "params": {"logging_dir": logging_dir}})
+        # 制御プロセスはMQTTControl時は一旦停止させる
+        self.stop_mqtt_control()
