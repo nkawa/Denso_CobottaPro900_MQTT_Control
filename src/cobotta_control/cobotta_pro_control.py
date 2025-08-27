@@ -1,6 +1,7 @@
 # Cobotta Proを制御する
 
 import logging
+import queue
 from typing import Any, Dict, List, Literal, TextIO, Tuple
 import datetime
 import time
@@ -434,31 +435,26 @@ class Cobotta_Pro_CON:
 
             if f is not None:
                 # 分析用データ保存
-                datum = dict(
-                    time=now,
-                    kind="target",
-                    joint=target_raw.tolist(),
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
-
-                datum = dict(
-                    time=now,
-                    kind="target_delayed",
-                    joint=target_delayed.tolist(),
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
-
-                datum = dict(
-                    time=now,
-                    kind="control",
-                    joint=control.tolist(),
-                    max_ratio=max_ratio,
-                    accel_max_ratio=accel_max_ratio,
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
+                datum = [
+                    dict(
+                        time=now,
+                        kind="target",
+                        joint=target_raw.tolist(),
+                    ),
+                    dict(
+                        time=now,
+                        kind="target_delayed",
+                        joint=target_delayed.tolist(),
+                    ),
+                    dict(
+                        time=now,
+                        kind="control",
+                        joint=control.tolist(),
+                        max_ratio=max_ratio,
+                        accel_max_ratio=accel_max_ratio,
+                    ),
+                ]
+                self.control_to_archiver_queue.put(datum)
 
             t_elapsed = time.time() - now
             if t_elapsed > t_intv * 2:
@@ -606,13 +602,7 @@ class Cobotta_Pro_CON:
                 # 制御ループ
                 # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
                 self.enter_servo_mode()
-                if save_control:
-                    with open(
-                        os.path.join(self.logging_dir, "control.jsonl"), "a"
-                    ) as f:
-                        self.control_loop(f)
-                else:
-                    self.control_loop()
+                self.control_loop()
                 self.leave_servo_mode()
                 # ここまで正常に終了した場合、ユーザーが要求した場合が成功を意味する
                 if self.pose[16] == 1:
@@ -1124,7 +1114,7 @@ class Cobotta_Pro_CON:
         self.logging_dir = logging_dir
         self.pose[33] = 0
 
-    def run_proc(self, control_pipe, slave_mode_lock, log_queue, logging_dir):
+    def run_proc(self, control_pipe, slave_mode_lock, log_queue, logging_dir, control_to_archiver_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
@@ -1132,6 +1122,7 @@ class Cobotta_Pro_CON:
         self.slave_mode_lock = slave_mode_lock
         self.control_pipe = control_pipe
         self.logging_dir = logging_dir
+        self.control_to_archiver_queue = control_to_archiver_queue
 
         self.init_robot()
         self.init_realtime()
@@ -1169,8 +1160,83 @@ class Cobotta_Pro_CON:
                         f"Unknown command: {command['command']}")
             if self.pose[32] == 1:
                 self.sm.close()
+                self.control_to_archiver_queue.close()
                 time.sleep(1)
                 self.logger.info("Process stopped")
                 self.handler.close()
                 self.robot_handler.close()
+                break
+
+
+class Cobotta_Pro_CON_Archiver:
+    def monitor_start(self, f: TextIO | None = None):
+        while True:
+            # ログファイル変更時
+            if self.pose[35] == 1:
+                return True
+            try:
+                datum = self.control_to_archiver_queue.get(
+                    block=True, timeout=T_INTV)
+            except queue.Empty:
+                datum = None
+            if ((f is not None) and 
+                (datum is not None)):
+                f.write(json.dumps(datum, ensure_ascii=False) + "\n")
+            # プロセス終了時
+            if self.pose[32] == 1:
+                return False
+
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("CTRL-ARCV")
+        if log_queue is not None:
+            self.handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            self.handler = logging.StreamHandler()
+        self.logger.addHandler(self.handler)
+        self.logger.setLevel(logging.INFO)
+
+    def get_logging_dir_and_change_log_file(self) -> None:
+        command = self.control_arcv_pipe.recv()
+        logging_dir = command["params"]["logging_dir"]
+        self.logger.info("Change log file")
+        self.change_log_file(logging_dir)
+
+    def change_log_file(self, logging_dir: str) -> None:
+        self.logging_dir = logging_dir
+        self.pose[35] = 0
+
+    def run_proc(self, control_arcv_pipe, log_queue, logging_dir, control_to_archiver_queue):
+        self.setup_logger(log_queue)
+        self.logger.info("Process started")
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.control_arcv_pipe = control_arcv_pipe
+        self.logging_dir = logging_dir
+        self.control_to_archiver_queue = control_to_archiver_queue
+
+        while True:
+            try:
+                # 基本はmonitor_start内のループにいるが、
+                # ログファイル変更またはプロセス終了時に
+                # monitor_startから抜ける
+                if save_control:
+                    with open(
+                        os.path.join(self.logging_dir, "control.jsonl"), "a"
+                    ) as f:
+                        will_change_log_file = self.monitor_start(f)
+                else:
+                    will_change_log_file = self.monitor_start()
+                # ログファイル変更時は大きいループを継続
+                if will_change_log_file:
+                    self.get_logging_dir_and_change_log_file()
+            except Exception as e:
+                self.logger.error("Error in control archiver")
+                self.logger.error(e)
+            # プロセス終了時は大きいループを抜ける
+            if self.pose[32] == 1:
+                self.sm.close()
+                self.control_to_archiver_queue.close()
+                time.sleep(1)
+                self.logger.info("Process stopped")
+                self.handler.close()
                 break
