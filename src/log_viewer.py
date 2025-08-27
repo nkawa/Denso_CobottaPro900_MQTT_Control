@@ -203,6 +203,7 @@ class LogViewer(QtWidgets.QWidget):
                 # 指数表記で全体6桁程度に揃える（例: 1.23e+03）
                 return [f"{v:+8.2e}" for v in values]
 
+        self.proxies = []
         for i in range(8):
             combo = self.combos[i]
             p = self.plots[i]
@@ -223,6 +224,7 @@ class LogViewer(QtWidgets.QWidget):
                 rateLimit=60,
                 slot=partial(self.on_hover, i),
             )
+            self.proxies.append(proxy)
             item = self.default_items[i]
             combo.clear()
             combo.addItems(self.all_items)
@@ -240,6 +242,8 @@ class LogViewer(QtWidgets.QWidget):
     def update_curve(self):
         # リストボックスで選択された要素に応じてプロットを更新
         combo = self.sender()
+        if combo is None:
+            return
         idx = self.combos.index(combo)
         item = combo.currentText()
         p = self.plots[idx]
