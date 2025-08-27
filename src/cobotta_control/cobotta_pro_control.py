@@ -97,6 +97,49 @@ target_state_abs_joint_diff_limit = [30, 30, 40, 40, 40, 60]
 save_control = SAVE
 
 
+class StopWatch:
+    def __init__(self):
+        self.start_t = None
+        self.last_t = None
+        self.last_msg = None
+        self.laps = []
+
+    def start(self, msg: str = "") -> None:
+        t = time.perf_counter()
+        self.start_t = t
+        self.last_t = t
+        self.last_msg = msg
+        self.laps = []
+
+    def lap(self, msg: str = "") -> None:
+        if ((self.start_t is None) or
+            (self.last_t is None) or
+            (self.last_msg is None)):
+            raise RuntimeError("StopWatch has not been started.")
+        t = time.perf_counter()
+        self.laps.append({
+            "msg": self.last_msg,
+            "lap": t - self.last_t,
+            "split": t - self.start_t,
+        })
+        self.last_t = t
+        self.last_msg = msg
+
+    def stop(self) -> None:
+        self.lap()
+        self.start_t = None
+        self.last_t = None
+        self.last_msg = None
+    
+    def summary(self) -> str:
+        s = "StopWatch summary:\n"
+        s += "| No. | Lap (ms) | Split (ms) | Message |\n"
+        s += "| - | - | - | - |\n"
+        for i, lap in enumerate(self.laps):
+            s += f"| {i} | {lap['lap']*1000:.3f} | {lap['split']*1000:.3f} | {lap['msg']} |\n"
+        return s
+
+
 class Cobotta_Pro_CON:
     def __init__(self):
         self.default_joint = default_joints["vr5"]
@@ -162,7 +205,9 @@ class Cobotta_Pro_CON:
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
+        sw = StopWatch()
         while True:
+            sw.start("Get shared memory")
             now = time.time()
 
             # NOTE: テスト用データなど、時間が経つにつれて
@@ -204,6 +249,7 @@ class Cobotta_Pro_CON:
 
             # 目標値
             target = self.pose[6:12].copy()
+            sw.lap("Check target")
             target_raw = target
 
             # 目標値の角度が360度の不定性が許される場合 (1度と-359度を区別しない場合) でも
@@ -232,6 +278,7 @@ class Cobotta_Pro_CON:
 #                code_stop = 1
 #                message_stop = "目標値が状態値から離れすぎています"
 
+            sw.lap("First target")
             if self.last == 0:
                 self.logger.info("Start sending control command")
                 # 制御する前に終了する場合即時終了可能
@@ -276,6 +323,7 @@ class Cobotta_Pro_CON:
                 self.last_control_velocity = np.zeros(6)
                 continue
 
+            sw.lap("Check stop")
             # 制御値を送り済みの場合は
             # 目標値を状態値にしてロボットを静止させてから止める
             # 厳密にはここに初めて到達した場合は制御値は送っていないが
@@ -285,6 +333,7 @@ class Cobotta_Pro_CON:
                     target_stop = state
                 target = target_stop
 
+            sw.lap("Read delayed interpolator")
             # target_delayedは、delay秒前の目標値を前後の値を
             # 使って線形補間したもの
             if use_interp:
@@ -292,6 +341,7 @@ class Cobotta_Pro_CON:
             else:
                 target_delayed = target
 
+            sw.lap("1st speed limit")
             # 速度制限をフィルタの手前にも入れてみる
             if True:
                 assert filter_kind == "original"
@@ -327,6 +377,7 @@ class Cobotta_Pro_CON:
 
             self.last_target_delayed = target_delayed
 
+            sw.lap("Get filtered target")
             # 平滑化
             if filter_kind == "original":
                 # 成功している方法
@@ -386,6 +437,7 @@ class Cobotta_Pro_CON:
             else:
                 raise ValueError
 
+            sw.lap("2nd speed limit")
             # 速度制限
             dt = now - self.last
             v = target_diff / dt
@@ -414,6 +466,7 @@ class Cobotta_Pro_CON:
 
             self.last_control_velocity = v
 
+            sw.lap("Get control")
             # 平滑化の種類による対応
             if filter_kind == "original":
                 control = self.last_control + target_diff_speed_limited
@@ -430,8 +483,10 @@ class Cobotta_Pro_CON:
             else:
                 raise ValueError
             
+            sw.lap("Put control to shared memory")
             self.pose[24:30] = control
 
+            sw.lap("Save control")
             if f is not None:
                 # 分析用データ保存
                 datum = dict(
@@ -460,13 +515,16 @@ class Cobotta_Pro_CON:
                 js = json.dumps(datum)
                 f.write(js + "\n")
 
+            sw.lap("Check elapsed before command")
             t_elapsed = time.time() - now
             if t_elapsed > t_intv * 2:
                 self.logger.warning(
                     f"Control loop is 2 times as slow as expected before command: "
                     f"{t_elapsed} seconds")
+                self.logger.warning(sw.summary())
 
             if move_robot:
+                sw.lap("Send arm command")
                 try:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
@@ -481,6 +539,7 @@ class Cobotta_Pro_CON:
                     else:
                         raise e
 
+                sw.lap("Send hand command")
                 if self.pose[13] == 1:
                     th1 = threading.Thread(target=self.send_grip)
                     th1.start()
@@ -491,18 +550,22 @@ class Cobotta_Pro_CON:
                     th2.start()
                     self.pose[13] = 0
 
+            sw.lap("Wait control loop")
             t_elapsed = time.time() - now
             t_wait = t_intv - t_elapsed
             if t_wait > 0:
                 if (move_robot and servo_mode == 0x102) or (not move_robot):
                     time.sleep(t_wait)
             
+            sw.lap("Check elapsed after command")
             t_elapsed = time.time() - now
             if t_elapsed > t_intv * 2:
                 self.logger.warning(
                     f"Control loop is 2 times as slow as expected after command: "
                     f"{t_elapsed} seconds")
+                self.logger.warning(sw.summary())
 
+            sw.stop()
             if stop:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
