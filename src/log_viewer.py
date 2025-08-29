@@ -49,6 +49,8 @@ class LogLoader:
                 records.append(data)
         df = pd.DataFrame(records)
         ret = {}
+        if df.empty:
+            return ret
         for kind in df["kind"].unique():
             ret[kind] = df[df["kind"] == kind]
         return ret
@@ -72,6 +74,8 @@ class LogLoader:
                 records.append(data)
         df = pd.DataFrame(records)
         ret = {}
+        if df.empty:
+            return ret
         for kind in df["kind"].unique():
             ret[kind] = df[df["kind"] == kind]
         return ret
@@ -82,21 +86,60 @@ class LogLoader:
         if not os.path.exists(path):
             return None
         events = []
+        match = None
+        dt_str, module, level, message, original_message = \
+            None, None, None, None, None
         with open(path) as f:
             for line in f:
-                line = line.strip()
-                # [日時][モジュール][レベル] メッセージ
+                # 各ログの形式は、[日時][モジュール][レベル] メッセージ
+                # (メッセージは複数行になることがある)
                 match = re.match(r'\[(.*?)\]\[(.*?)\]\[(.*?)\] (.*)', line)
+                # 各ログの先頭行
                 if match:
+                    # ファイル最初のログ行への対応
+                    if (
+                        (dt_str is not None) and
+                        (module is not None) and
+                        (level is not None) and
+                        (message is not None) and
+                        (original_message is not None)
+                    ):
+                        events.append({
+                            'time': pd.to_datetime(dt_str).tz_localize(
+                                'Asia/Tokyo').timestamp(),
+                            'module': module,
+                            'level': level,
+                            'message': message.strip(),
+                            'original_message': original_message.strip(),
+                            'is_event': 1,
+                        })
                     dt_str, module, level, message = match.groups()
+                    original_message = line
+                # ログの続き行
+                else:
+                    if message is not None:
+                        message += line
+                    if original_message is not None:
+                        original_message += line
+            # ファイル最後のログ行への対応
+            if match:
+                if (
+                    (dt_str is not None) and
+                    (module is not None) and
+                    (level is not None) and
+                    (message is not None) and
+                    (original_message is not None)
+                ):
                     events.append({
-                        'time': pd.to_datetime(dt_str).tz_localize('Asia/Tokyo').timestamp(),
+                        'time': pd.to_datetime(dt_str).tz_localize(
+                            'Asia/Tokyo').timestamp(),
                         'module': module,
                         'level': level,
-                        'message': message,
-                        'original_message': line,
+                        'message': message.strip(),
+                        'original_message': original_message.strip(),
                         'is_event': 1,
                     })
+
         return pd.DataFrame(events)
 
 class LogViewer(QtWidgets.QWidget):
