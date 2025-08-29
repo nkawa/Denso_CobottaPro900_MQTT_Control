@@ -488,28 +488,27 @@ class Cobotta_Pro_CON:
             self.pose[24:30] = control
 
             sw.lap("Save control")
-            if f is not None:
-                # 分析用データ保存
-                datum = [
-                    dict(
-                        time=now,
-                        kind="target",
-                        joint=target_raw.tolist(),
-                    ),
-                    dict(
-                        time=now,
-                        kind="target_delayed",
-                        joint=target_delayed.tolist(),
-                    ),
-                    dict(
-                        time=now,
-                        kind="control",
-                        joint=control.tolist(),
-                        max_ratio=max_ratio,
-                        accel_max_ratio=accel_max_ratio,
-                    ),
-                ]
-                self.control_to_archiver_queue.put(datum)
+            # 分析用データ保存
+            datum = [
+                dict(
+                    time=now,
+                    kind="target",
+                    joint=target_raw.tolist(),
+                ),
+                dict(
+                    time=now,
+                    kind="target_delayed",
+                    joint=target_delayed.tolist(),
+                ),
+                dict(
+                    time=now,
+                    kind="control",
+                    joint=control.tolist(),
+                    max_ratio=max_ratio,
+                    accel_max_ratio=accel_max_ratio,
+                ),
+            ]
+            self.control_to_archiver_queue.put(datum)
 
             sw.lap("Check elapsed before command")
             t_elapsed = time.time() - now
@@ -1244,7 +1243,10 @@ class Cobotta_Pro_CON_Archiver:
                 datum = None
             if ((f is not None) and 
                 (datum is not None)):
-                f.write(json.dumps(datum, ensure_ascii=False) + "\n")
+                s = ""
+                for d in datum:
+                    s = s + json.dumps(d, ensure_ascii=False) + "\n"
+                f.write(s)
             # プロセス終了時
             if self.pose[32] == 1:
                 return False
