@@ -748,9 +748,28 @@ class DensoRobot:
                     s += ("Cannot get error description from the error code. "
                         "Refer to teaching pendant or documentation.\n")
                 else:
+                    # GetErrorDescriptionはスレーブモード中で実行できない
                     desc = self._bcap.controller_execute(
                         self._hCtrl, "GetErrorDescription", hr)
                     s += f"Error description: {desc}\n"
+            return s
+        # エラーフォーマット時に例外を起こさないようにする
+        # 例えばGetErrorDescriptionはタイムアウトの場合に例外を投げることを確認している
+        # のでそれらをキャッチしておく
+        except Exception as e:
+            s += "Error in format error; during handling of the above exception, " \
+                 "another exception occurred:\n\n"
+            s = s + "Error trace: " + traceback.format_exc() + "\n"
+            return s
+
+    def format_error_wo_desc(self, e: Exception) -> str:
+        try:
+            s = "\n"
+            s = s + "Error trace: " + traceback.format_exc() + "\n"
+            if type(e) is ORiNException:
+                s += "Error type: ORiN exception in controller\n"
+                hr = e.hresult
+                s += f"Error code: {python_error_to_original_error_str(hr)}\n"
             return s
         # エラーフォーマット時に例外を起こさないようにする
         # 例えばGetErrorDescriptionはタイムアウトの場合に例外を投げることを確認している

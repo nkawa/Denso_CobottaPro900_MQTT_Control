@@ -81,7 +81,7 @@ class Cobotta_Pro_MON:
                         self.logger.error(
                             "Error in reconnecting robot")
                         self.logger.error(
-                            f"{self.robot.format_error(e)}")
+                            f"{self.robot.format_error_wo_desc(e)}")
                     time.sleep(1)
                 self.logger.error(
                     "Failed to reconnect robot after"
@@ -207,7 +207,7 @@ class Cobotta_Pro_MON:
                 actual_tcp_pose = self.robot.get_current_pose()
             except Exception as e:
                 self.logger.error("Error in get_current_pose: ")
-                self.logger.error(f"{self.robot.format_error(e)}")
+                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 actual_tcp_pose = None
             # 関節
@@ -215,7 +215,7 @@ class Cobotta_Pro_MON:
                 actual_joint = self.robot.get_current_joint()
             except Exception as e:
                 self.logger.error("Error in get_current_joint: ")
-                self.logger.error(f"{self.robot.format_error(e)}")
+                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 actual_joint = None
             if actual_joint is not None:
@@ -242,7 +242,7 @@ class Cobotta_Pro_MON:
                 forces = self.robot.ForceValue()
             except Exception as e:
                 self.logger.error("Error in ForceValue: ")
-                self.logger.error(f"{self.robot.format_error(e)}")
+                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 forces = None
             if forces is not None:
@@ -265,7 +265,7 @@ class Cobotta_Pro_MON:
                             force = self.hand.get_force()
                         except Exception as e:
                             self.logger.error("Error in onrobot_2fg7 hand: ")
-                            self.logger.error(f"{self.robot.format_error(e)}")
+                            self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                             width = None
                             force = None
                     elif self.hand_name == "onrobot_vgc10":
@@ -285,7 +285,7 @@ class Cobotta_Pro_MON:
                 self.logger.warning(
                     "Somehow failed in checking if robot is enabled. "
                     "Enabled value may be incorrect.")
-                self.logger.warning(f"{self.robot.format_error(e)}")
+                self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 enabled = False
             actual_joint_js["enabled"] = enabled
@@ -429,7 +429,7 @@ class Cobotta_Pro_MON:
                     self.get_logging_dir_and_change_log_file()
             except Exception as e:
                 self.logger.error("Error in monitor")
-                self.logger.error(f"{self.robot.format_error(e)}")
+                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
             if self.pose[32] == 1:
                 self.client.loop_stop()
                 self.client.disconnect()
