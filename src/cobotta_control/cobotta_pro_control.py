@@ -1,6 +1,7 @@
 # Cobotta Proを制御する
 
 import logging
+import queue
 from typing import Any, Dict, List, Literal, TextIO, Tuple
 import datetime
 import time
@@ -97,6 +98,49 @@ target_state_abs_joint_diff_limit = [30, 30, 40, 40, 40, 60]
 save_control = SAVE
 
 
+class StopWatch:
+    def __init__(self):
+        self.start_t = None
+        self.last_t = None
+        self.last_msg = None
+        self.laps = []
+
+    def start(self, msg: str = "") -> None:
+        t = time.perf_counter()
+        self.start_t = t
+        self.last_t = t
+        self.last_msg = msg
+        self.laps = []
+
+    def lap(self, msg: str = "") -> None:
+        if ((self.start_t is None) or
+            (self.last_t is None) or
+            (self.last_msg is None)):
+            raise RuntimeError("StopWatch has not been started.")
+        t = time.perf_counter()
+        self.laps.append({
+            "msg": self.last_msg,
+            "lap": t - self.last_t,
+            "split": t - self.start_t,
+        })
+        self.last_t = t
+        self.last_msg = msg
+
+    def stop(self) -> None:
+        self.lap()
+        self.start_t = None
+        self.last_t = None
+        self.last_msg = None
+    
+    def summary(self) -> str:
+        s = "StopWatch summary:\n"
+        s += "| No. | Lap (ms) | Split (ms) | Message |\n"
+        s += "| - | - | - | - |\n"
+        for i, lap in enumerate(self.laps):
+            s += f"| {i} | {lap['lap']*1000:.3f} | {lap['split']*1000:.3f} | {lap['msg']} |\n"
+        return s
+
+
 class Cobotta_Pro_CON:
     def __init__(self):
         self.default_joint = default_joints["vr5"]
@@ -162,7 +206,9 @@ class Cobotta_Pro_CON:
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
+        sw = StopWatch()
         while True:
+            sw.start("Get shared memory")
             now = time.time()
 
             # NOTE: テスト用データなど、時間が経つにつれて
@@ -204,6 +250,7 @@ class Cobotta_Pro_CON:
 
             # 目標値
             target = self.pose[6:12].copy()
+            sw.lap("Check target")
             target_raw = target
 
             # 目標値の角度が360度の不定性が許される場合 (1度と-359度を区別しない場合) でも
@@ -231,7 +278,8 @@ class Cobotta_Pro_CON:
 #                stop = 1
 #                code_stop = 1
 #                message_stop = "目標値が状態値から離れすぎています"
-
+            
+            sw.lap("First target")
             if self.last == 0:
                 self.logger.info("Start sending control command")
                 # 制御する前に終了する場合即時終了可能
@@ -276,6 +324,7 @@ class Cobotta_Pro_CON:
                 self.last_control_velocity = np.zeros(6)
                 continue
 
+            sw.lap("Check stop")
             # 制御値を送り済みの場合は
             # 目標値を状態値にしてロボットを静止させてから止める
             # 厳密にはここに初めて到達した場合は制御値は送っていないが
@@ -285,6 +334,7 @@ class Cobotta_Pro_CON:
                     target_stop = state
                 target = target_stop
 
+            sw.lap("Read delayed interpolator")
             # target_delayedは、delay秒前の目標値を前後の値を
             # 使って線形補間したもの
             if use_interp:
@@ -292,6 +342,7 @@ class Cobotta_Pro_CON:
             else:
                 target_delayed = target
 
+            sw.lap("1st speed limit")
             # 速度制限をフィルタの手前にも入れてみる
             if True:
                 assert filter_kind == "original"
@@ -327,6 +378,7 @@ class Cobotta_Pro_CON:
 
             self.last_target_delayed = target_delayed
 
+            sw.lap("Get filtered target")
             # 平滑化
             if filter_kind == "original":
                 # 成功している方法
@@ -386,6 +438,7 @@ class Cobotta_Pro_CON:
             else:
                 raise ValueError
 
+            sw.lap("2nd speed limit")
             # 速度制限
             dt = now - self.last
             v = target_diff / dt
@@ -414,6 +467,7 @@ class Cobotta_Pro_CON:
 
             self.last_control_velocity = v
 
+            sw.lap("Get control")
             # 平滑化の種類による対応
             if filter_kind == "original":
                 control = self.last_control + target_diff_speed_limited
@@ -429,44 +483,43 @@ class Cobotta_Pro_CON:
                 control = last_target_filtered + target_diff_speed_limited
             else:
                 raise ValueError
-            
+
+            sw.lap("Put control to shared memory")
             self.pose[24:30] = control
 
-            if f is not None:
-                # 分析用データ保存
-                datum = dict(
+            sw.lap("Save control")
+            # 分析用データ保存
+            datum = [
+                dict(
                     time=now,
                     kind="target",
                     joint=target_raw.tolist(),
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
-
-                datum = dict(
+                ),
+                dict(
                     time=now,
                     kind="target_delayed",
                     joint=target_delayed.tolist(),
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
-
-                datum = dict(
+                ),
+                dict(
                     time=now,
                     kind="control",
                     joint=control.tolist(),
                     max_ratio=max_ratio,
                     accel_max_ratio=accel_max_ratio,
-                )
-                js = json.dumps(datum)
-                f.write(js + "\n")
+                ),
+            ]
+            self.control_to_archiver_queue.put(datum)
 
+            sw.lap("Check elapsed before command")
             t_elapsed = time.time() - now
             if t_elapsed > t_intv * 2:
                 self.logger.warning(
                     f"Control loop is 2 times as slow as expected before command: "
                     f"{t_elapsed} seconds")
+                self.logger.warning(sw.summary())
 
             if move_robot:
+                sw.lap("Send arm command")
                 try:
                     self.robot.move_joint_servo(control.tolist())
                 except ORiNException as e:
@@ -481,6 +534,7 @@ class Cobotta_Pro_CON:
                     else:
                         raise e
 
+                sw.lap("Send hand command")
                 if self.pose[13] == 1:
                     th1 = threading.Thread(target=self.send_grip)
                     th1.start()
@@ -491,18 +545,22 @@ class Cobotta_Pro_CON:
                     th2.start()
                     self.pose[13] = 0
 
+            sw.lap("Wait control loop")
             t_elapsed = time.time() - now
             t_wait = t_intv - t_elapsed
             if t_wait > 0:
                 if (move_robot and servo_mode == 0x102) or (not move_robot):
                     time.sleep(t_wait)
-            
+
+            sw.lap("Check elapsed after command")
             t_elapsed = time.time() - now
             if t_elapsed > t_intv * 2:
                 self.logger.warning(
                     f"Control loop is 2 times as slow as expected after command: "
                     f"{t_elapsed} seconds")
+                self.logger.warning(sw.summary())
 
+            sw.stop()
             if stop:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
@@ -606,13 +664,7 @@ class Cobotta_Pro_CON:
                 # 制御ループ
                 # 停止するのは、ユーザーが要求した場合か、自然に内部エラーが発生した場合
                 self.enter_servo_mode()
-                if save_control:
-                    with open(
-                        os.path.join(self.logging_dir, "control.jsonl"), "a"
-                    ) as f:
-                        self.control_loop(f)
-                else:
-                    self.control_loop()
+                self.control_loop()
                 self.leave_servo_mode()
                 # ここまで正常に終了した場合、ユーザーが要求した場合が成功を意味する
                 if self.pose[16] == 1:
@@ -1124,7 +1176,7 @@ class Cobotta_Pro_CON:
         self.logging_dir = logging_dir
         self.pose[33] = 0
 
-    def run_proc(self, control_pipe, slave_mode_lock, log_queue, logging_dir):
+    def run_proc(self, control_pipe, slave_mode_lock, log_queue, logging_dir, control_to_archiver_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
@@ -1132,6 +1184,7 @@ class Cobotta_Pro_CON:
         self.slave_mode_lock = slave_mode_lock
         self.control_pipe = control_pipe
         self.logging_dir = logging_dir
+        self.control_to_archiver_queue = control_to_archiver_queue
 
         self.init_robot()
         self.init_realtime()
@@ -1169,8 +1222,86 @@ class Cobotta_Pro_CON:
                         f"Unknown command: {command['command']}")
             if self.pose[32] == 1:
                 self.sm.close()
+                self.control_to_archiver_queue.close()
                 time.sleep(1)
                 self.logger.info("Process stopped")
                 self.handler.close()
                 self.robot_handler.close()
+                break
+
+
+class Cobotta_Pro_CON_Archiver:
+    def monitor_start(self, f: TextIO | None = None):
+        while True:
+            # ログファイル変更時
+            if self.pose[35] == 1:
+                return True
+            try:
+                datum = self.control_to_archiver_queue.get(
+                    block=True, timeout=T_INTV)
+            except queue.Empty:
+                datum = None
+            if ((f is not None) and 
+                (datum is not None)):
+                s = ""
+                for d in datum:
+                    s = s + json.dumps(d, ensure_ascii=False) + "\n"
+                f.write(s)
+            # プロセス終了時
+            if self.pose[32] == 1:
+                return False
+
+    def setup_logger(self, log_queue):
+        self.logger = logging.getLogger("CTRL-ARCV")
+        if log_queue is not None:
+            self.handler = logging.handlers.QueueHandler(log_queue)
+        else:
+            self.handler = logging.StreamHandler()
+        self.logger.addHandler(self.handler)
+        self.logger.setLevel(logging.INFO)
+
+    def get_logging_dir_and_change_log_file(self) -> None:
+        command = self.control_arcv_pipe.recv()
+        logging_dir = command["params"]["logging_dir"]
+        self.logger.info("Change log file")
+        self.change_log_file(logging_dir)
+
+    def change_log_file(self, logging_dir: str) -> None:
+        self.logging_dir = logging_dir
+        self.pose[35] = 0
+
+    def run_proc(self, control_arcv_pipe, log_queue, logging_dir, control_to_archiver_queue):
+        self.setup_logger(log_queue)
+        self.logger.info("Process started")
+        self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
+        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
+        self.control_arcv_pipe = control_arcv_pipe
+        self.logging_dir = logging_dir
+        self.control_to_archiver_queue = control_to_archiver_queue
+
+        while True:
+            try:
+                # 基本はmonitor_start内のループにいるが、
+                # ログファイル変更またはプロセス終了時に
+                # monitor_startから抜ける
+                if save_control:
+                    with open(
+                        os.path.join(self.logging_dir, "control.jsonl"), "a"
+                    ) as f:
+                        will_change_log_file = self.monitor_start(f)
+                else:
+                    will_change_log_file = self.monitor_start()
+                # ログファイル変更時は大きいループを継続
+                if will_change_log_file:
+                    self.get_logging_dir_and_change_log_file()
+            except Exception as e:
+                self.logger.error("Error in control archiver")
+                self.logger.error(e)
+            # プロセス終了時は大きいループを抜ける
+            if self.pose[32] == 1:
+                self.sm.close()
+                self.control_to_archiver_queue.close()
+                time.sleep(1)
+                self.logger.info("Process stopped")
+                self.handler.close()
                 break
