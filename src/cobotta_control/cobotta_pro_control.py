@@ -207,6 +207,8 @@ class Cobotta_Pro_CON:
         self.pose[20] = 0
         target_stop = None
         sw = StopWatch()
+        last_target = None
+
         while True:
             sw.start("Get shared memory")
             now = time.time()
@@ -273,10 +275,20 @@ class Cobotta_Pro_CON:
             target = target_th
 
             # 目標値が状態値から大きく離れた場合
-            if (np.abs(target - state) > 
-                target_state_abs_joint_diff_limit).any():
+            # すでに目標値を受け取っていない場合はすぐに、
+            # 目標値を受け取っている場合は前回の目標値からも大きく離れた場合に停止させる
+            if (
+                (np.abs(target - state) > 
+                target_state_abs_joint_diff_limit).any()
+            ) and (
+                last_target is None or
+                (np.abs(target - last_target) > 
+                target_state_abs_joint_diff_limit).any()
+            ):
                 # 強制停止する。強制停止しないとエラーメッセージを返すのが複雑になる
                 raise ValueError("Target and state are too different")
+
+            last_target = target
 
             sw.lap("First target")
             if self.last == 0:
