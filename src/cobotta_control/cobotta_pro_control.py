@@ -207,6 +207,8 @@ class Cobotta_Pro_CON:
         self.pose[20] = 0
         target_stop = None
         sw = StopWatch()
+        last_target = None
+
         while True:
             sw.start("Get shared memory")
             now = time.time()
@@ -272,13 +274,22 @@ class Cobotta_Pro_CON:
                 self.logger.warning("target reached maximum threshold")
             target = target_th
 
-            # 目標値が状態値から大きく離れた場合は制御を停止する
-#            if (np.abs(target - state) > 
-#                target_state_abs_joint_diff_limit).any():
-#                stop = 1
-#                code_stop = 1
-#                message_stop = "目標値が状態値から離れすぎています"
-            
+            # 目標値が状態値から大きく離れた場合
+            # すでに目標値を受け取っていない場合はすぐに、
+            # 目標値を受け取っている場合は前回の目標値からも大きく離れた場合に停止させる
+            if (
+                (np.abs(target - state) > 
+                target_state_abs_joint_diff_limit).any()
+            ) and (
+                last_target is None or
+                (np.abs(target - last_target) > 
+                target_state_abs_joint_diff_limit).any()
+            ):
+                # 強制停止する。強制停止しないとエラーメッセージを返すのが複雑になる
+                raise ValueError("Target and state are too different")
+
+            last_target = target
+
             sw.lap("First target")
             if self.last == 0:
                 self.logger.info("Start sending control command")
@@ -677,6 +688,11 @@ class Cobotta_Pro_CON:
                 time.sleep(1)
                 self.logger.error("Error in control loop")
                 self.logger.error(f"{self.robot.format_error(e)}")
+
+                # 目標値が状態値から大きく離れた場合は自動復帰しない
+                if str(e) == "Target and state are too different":
+                    self.pose[16] = 0
+                    return False
 
                 # 必ずスレーブモードから抜ける
                 try:
