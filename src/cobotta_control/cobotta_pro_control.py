@@ -203,6 +203,8 @@ class Cobotta_Pro_CON:
         """リアルタイム制御ループ"""
         self.last = 0
         self.logger.info("Start Control Loop")
+        # 状態値が最新の値になるようにする
+        time.sleep(1)
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
@@ -230,6 +232,10 @@ class Cobotta_Pro_CON:
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
+                # ロボットにコマンドを送る前は、非常停止が押されているかを
+                # スレーブモードが解除されているかで確認する
+                if self.pose[37] != 1:
+                    raise ValueError("Robot is not in servo mode")
                 continue
 
             # 目標値を取得しているかを確認
@@ -239,6 +245,10 @@ class Cobotta_Pro_CON:
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
+                # ロボットにコマンドを送る前は、非常停止が押されているかを
+                # スレーブモードが解除されているかで確認する
+                if self.pose[37] != 1:
+                    raise ValueError("Robot is not in servo mode")
                 continue
 
             # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
@@ -333,6 +343,10 @@ class Cobotta_Pro_CON:
                     self.last_target_delayed_velocity = np.zeros(6)
 
                 self.last_control_velocity = np.zeros(6)
+                # ロボットにコマンドを送る前は、非常停止が押されているかを
+                # スレーブモードが解除されているかで確認する
+                if self.pose[37] != 1:
+                    raise ValueError("Robot is not in servo mode")
                 continue
 
             sw.lap("Check stop")
@@ -710,6 +724,14 @@ class Cobotta_Pro_CON:
                     else:
                         self.pose[16] = 0
                         return False
+
+                # 非常停止ボタンの状態値を最新にするまで待つ必要がある
+                time.sleep(1)
+                # 非常停止ボタンが押された場合は自動復帰しない
+                if self.pose[36] == 1:
+                    self.logger.error("Emergency stop is pressed")
+                    self.pose[16] = 0
+                    return False
 
                 # タイムアウトの場合は接続からやり直す
                 if ((type(e) is ORiNException and

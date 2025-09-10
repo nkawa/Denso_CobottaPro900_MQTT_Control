@@ -86,6 +86,9 @@ E_ACCEL_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象加速度エラ
 E_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象エラー"].astype(bool), "コード"].apply(
     lambda x: original_error_to_python_error(int(x, 16))
 ))
+E_EMERGENCY_STOP_SET = set(df.loc[df["非常停止エラー"].astype(bool), "コード"].apply(
+    lambda x: original_error_to_python_error(int(x, 16))
+))
 
 class DensoRobot:
     """Denso Cobotta Pro 900の制御クラス。
@@ -1593,6 +1596,13 @@ class DensoRobot:
             ) in stateless_errors
         for error in errors)
 
+    def is_emergency_stop_in_errors(self, errors) -> bool:
+        return any(
+            original_error_to_python_error(
+                int(error["error_code"], 16)
+            ) in E_EMERGENCY_STOP_SET
+            for error in errors)
+
     def is_enabled(self) -> bool:
         """
         モータがONかどうか。
@@ -1626,3 +1636,72 @@ class DensoRobot:
         戻り値 ： 有効/無効(VT_BOOL)
         """
         return self._bcap.robot_execute(self._hRob, "GetAreaEnabled", [area_num])
+
+    def SysState(self) -> int:
+        """
+        コントローラのステータスを整数型データで返します。
+        各ビットの意味はfetch_from_sys_state参照。
+        スレーブモードでは実行できません。
+        """
+        return self._bcap.controller_execute(self._hCtrl, "SysState")
+
+    def fetch_from_sys_state(self, sys_state: int, idx: int) -> bool:
+        """
+        SysStateから特定のステータスを取得します。
+        各ビットの意味は以下の通りです。
+        0ビット目は最下位ビットのことです。
+        SYSSTATE_POS_TO_VALUE = {
+            0: 'ロボット運転中(プログラム動作中)',
+            1: 'ロボット異常',
+            2: 'サーボON中',  # "Motor"コマンドでONにしたときに対応  
+            3: 'ロボット初期化完了(I/O 標準、MiniIO専用モード選択時)/ ロボット電源入り完了(I/O 互換モード選択時)',
+            4: '自動モード',
+            5: '自動モードで起動権がスマートTP以外にある場合',
+            6: 'バッテリ切れ警告',
+            7: 'ロボット警告',
+            8: 'コンティニュスタート許可',
+            9: '予約',
+            10: '非常停止状態',
+            11: '自動運転イネーブル',
+            12: '防護停止',
+            13: '停止処理中',
+            14: '予約',
+            15: '予約',
+            16: 'プログラムスタートリセット',
+            17: 'Cal完了',
+            18: '手動モード',
+            19: '1サイクル完了',
+            20: 'ロボット動作中(指令値レベル)',
+            21: 'ロボット動作中(エンコーダレベル)',
+            22: '予約',
+            23: '予約',
+            24: 'コマンド処理完了',
+            25: '予約',
+            26: '予約',
+            27: '予約',
+            28: '予約',
+            29: '予約',
+            30: '予約',
+            31: '予約'
+        }
+        """
+        # ビット表示
+        # 出力例: 0b100000100100111100
+        # 仕様では32ビットだが手元での出力は18ビットであり、後半のビットが省かれていると
+        # 考えられる
+        b = bin(sys_state)
+        # 先頭の"0b"を削る
+        b = b[2:]
+        if idx < 0 or idx >= len(b):
+            raise ValueError(f"idx {idx} is out of range 0-{len(b)-1}")
+        # 左端が0ビット目になるように反転
+        b = b[::-1]
+        return b[idx] == "1"
+    
+    def is_emergency_stopped(self) -> bool:
+        """
+        非常停止状態かどうか。
+        スレーブモードでは実行できません。
+        """
+        i = self.SysState()
+        return self.fetch_from_sys_state(i, 10)

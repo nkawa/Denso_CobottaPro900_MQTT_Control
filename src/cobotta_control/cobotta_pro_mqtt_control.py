@@ -257,6 +257,8 @@ class ProcessManager:
         # [33]: ログ出力先の変更フラグ(control用)
         # [34]: ログ出力先の変更フラグ(monitor用)
         # [35]: ログ出力先の変更フラグ(contol-archiver用)
+        # [36]: 0: 非常停止でない。1: 非常停止
+        # [37]: スレーブモードの状態値。0: 通常モード。1: スレーブモード
         self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()

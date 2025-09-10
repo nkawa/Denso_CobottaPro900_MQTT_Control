@@ -157,7 +157,16 @@ class MQTTWin:
                        command=self.DisconnectMQTT, state="disabled")
         # self.button_DisconnectMQTT.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
 
-
+        self.frame_is_emergency_stopped = tk.Frame(self.root)
+        self.frame_is_emergency_stopped.grid(row=row,column=4,padx=2,pady=2,sticky="w", columnspan=2)
+        self.canvas_is_emergency_stopped = \
+            tk.Canvas(self.frame_is_emergency_stopped, width=10, height=10)
+        self.canvas_is_emergency_stopped.pack(side="left",padx=10)
+        self.light_is_emergency_stopped = \
+            self.canvas_is_emergency_stopped.create_oval(1, 1, 9, 9, fill="gray")
+        self.label_is_emergency_stopped = \
+            tk.Label(self.frame_is_emergency_stopped, text="EmergencyStopped")
+        self.label_is_emergency_stopped.pack(side="left",padx=2)
 
         self.frame_area_enabled = tk.Frame(self.root)
         self.frame_area_enabled.grid(row=row,column=6,padx=2,pady=2,sticky="w", columnspan=2)
@@ -738,6 +747,8 @@ class MQTTWin:
             self.update_topic(log_str, self.topic_monitors[topic_type])
 
             # 各情報をパース
+            color = "red" if log.get("emergency_stopped") else "gray"
+            self.canvas_is_emergency_stopped.itemconfig(self.light_is_emergency_stopped, fill=color)
             color = "lime" if log.get("area_enabled") else "gray"
             self.canvas_area_enabled.itemconfig(self.light_area_enabled, fill=color)
             color = "lime" if log.get("enabled") else "gray"
