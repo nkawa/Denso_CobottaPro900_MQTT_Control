@@ -1216,6 +1216,7 @@ class Cobotta_Pro_CON:
                 elif command["command"] == "tidy_pose":
                     self.tidy_pose()
                 elif command["command"] == "release_hand":
+                    self.logger.info("Release hand")
                     self.send_release()
                 elif command["command"] == "clear_error":
                     self.clear_error()
