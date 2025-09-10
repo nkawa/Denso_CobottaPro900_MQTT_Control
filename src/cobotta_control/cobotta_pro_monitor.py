@@ -312,16 +312,9 @@ class Cobotta_Pro_MON:
                     if len(errors) > 0:
                         error = {"errors": errors}
                         # 自動復帰可能エラー
-                        try:
-                            auto_recoverable = \
-                                self.robot.are_all_errors_stateless(errors)
-                            error["auto_recoverable"] = auto_recoverable
-                        except Exception as e:
-                            self.logger.error(
-                                "Error in are_all_errors_stateless: ")
-                            self.logger.error(f"{self.robot.format_error(e)}")
-                            self.reconnect_after_timeout(e)
-                            error["auto_recoverable"] = False
+                        auto_recoverable = \
+                            self.robot.are_all_errors_stateless(errors)
+                        error["auto_recoverable"] = auto_recoverable
                 else:
                     actual_joint_js["servo_mode"] = True
             if self.pose[15] == 0:
