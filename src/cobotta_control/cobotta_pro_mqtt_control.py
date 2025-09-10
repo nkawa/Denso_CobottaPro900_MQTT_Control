@@ -276,6 +276,7 @@ class ProcessManager:
         self.monP = None
         self.ctrlP = None
         self.monitor_guiP = None
+        self.ctrl_archiverP = None
         self.control_to_archiver_queue = multiprocessing.Queue()
         self.main_to_control_archiver_pipe, self.control_archiver_pipe = \
             multiprocessing.Pipe()
