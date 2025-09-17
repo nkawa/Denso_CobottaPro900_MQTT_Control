@@ -149,7 +149,7 @@ class MQTTWin:
 
         self.button_DemoPutDownBox = \
             tk.Button(self.root, text="DemoPutDownBox", padx=5,
-                       command=self.DemoPutDownBox, state="normal")
+                       command=self.DemoPutDownBox, state="disabled")
         self.button_DemoPutDownBox.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
 
         self.button_DisconnectMQTT = \
@@ -190,6 +190,11 @@ class MQTTWin:
             tk.Button(self.root, text="ReleaseHand", padx=5,
                       command=self.ReleaseHand, state="disabled")
         self.button_ReleaseHand.grid(row=row,column=4,padx=2,pady=2,sticky="ew", columnspan=2)
+
+        self.button_LineCut = \
+            tk.Button(self.root, text="LineCut", padx=5,
+                      command=self.LineCut, state="disabled")
+        self.button_LineCut.grid(row=row,column=6,padx=2,pady=2,sticky="ew", columnspan=2)
 
         self.frame_enabled = tk.Frame(self.root)
         self.frame_enabled.grid(row=row,column=8,padx=2,pady=2,sticky="w", columnspan=2)
@@ -598,6 +603,8 @@ class MQTTWin:
         self.button_TidyPose.config(state="normal")
         self.button_ToolChange.config(state="normal")
         self.button_ChangeLogFile.config(state="normal")
+        self.button_DemoPutDownBox.config(state="normal")
+        self.button_LineCut.config(state="normal")
         if self.pm.state_recv_mqtt:
             self.button_StartMQTTControl.config(state="normal")
             self.button_StopMQTTControl.config(state="normal")
@@ -667,6 +674,11 @@ class MQTTWin:
         if not self.pm.state_control:
             return
         self.pm.release_hand()
+    
+    def LineCut(self):
+        if not self.pm.state_control:
+            return
+        self.pm.line_cut()
 
     def ToolChange(self):
         if not self.pm.state_control:

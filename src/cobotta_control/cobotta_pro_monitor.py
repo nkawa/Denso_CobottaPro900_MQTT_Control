@@ -204,6 +204,20 @@ class Cobotta_Pro_MON:
             if status_put_down_box is not None:
                 actual_joint_js["put_down_box"] = status_put_down_box
 
+            # カッター移動            
+            status_line_cut = None
+            line_cut = self.pose[38].copy()
+            if line_cut != 0:
+                if not line_cut:
+                    line_cut = True
+            else:
+                if line_cut:
+                    line_cut = False
+                    status_line_cut = bool(self.pose[39] == 1)
+            # 終了した場合のみキーを追加
+            if status_line_cut is not None:
+                actual_joint_js["line_cut"] = status_line_cut
+
             # TCP姿勢
             try:
                 actual_tcp_pose = self.robot.get_current_pose()

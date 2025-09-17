@@ -817,6 +817,7 @@ class Cobotta_Pro_CON:
             # 停止フラグが成功の場合は、ユーザーが要求した場合のみありうる
             next_tool_id = self.pose[17].copy()
             put_down_box = self.pose[21].copy()
+            line_cut = self.pose[38].copy()
             change_log_file = self.pose[33].copy()
             if success_stop:
                 # ツールチェンジが要求された場合
@@ -847,6 +848,11 @@ class Cobotta_Pro_CON:
                     # 成功しても失敗してもループを継続する (ツールを変えることによる
                     # 予測できないエラーは起こらないため)
                     self.demo_put_down_box()
+                elif line_cut != 0:
+                    self.logger.info("User required line cut")
+                    # 成功しても失敗してもループを継続する (ツールを変えることによる
+                    # 予測できないエラーは起こらないため)
+                    self.line_cut()
                 # ログファイルを変更することが要求された場合
                 elif change_log_file != 0:
                     self.logger.info("User required change log file")
@@ -868,6 +874,10 @@ class Cobotta_Pro_CON:
                     # 要求コマンドのみリセット
                     self.pose[22] = 2
                     self.pose[21] = 0
+                elif line_cut != 0:
+                    # 要求コマンドのみリセット
+                    self.pose[39] = 2
+                    self.pose[38] = 0
                 # ループを抜ける
                 elif change_log_file != 0:
                     # 要求コマンドのみリセット
@@ -1214,6 +1224,42 @@ class Cobotta_Pro_CON:
         self.logging_dir = logging_dir
         self.pose[33] = 0
 
+    def line_cut(self) -> None:
+        try:
+            if self.tool_id != 3:
+                raise ValueError("Tool is not the cutter")
+            current_pose = self.robot.get_current_pose()
+            offset = [450, 0, 0, 0, 0, 0]
+            x, y, z, rx, ry, rz, fig = current_pose + [-1]
+            current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+            x, y, z, rx, ry, rz, fig = offset + [-1]
+            offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+            # ツール座標系で指定したオフセットを足し合わせる
+            goal = self.robot.DevH(current_pose_pd, offset_pd)
+            x, y, z, rx, ry, rz, fig = goal
+            goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+            # 目的地が移動可能エリア内か確認する
+            is_out_range = self.robot.OutRange(goal_pd)
+            if is_out_range != 0:
+                raise ValueError(
+                    f"Goal is out of range. is_out_range: {is_out_range}")
+            else:
+                values = []
+                for value_str in goal_pd.strip("P()").split(","):
+                    value_str = value_str.strip()
+                    value = float(value_str)
+                    values.append(value)
+                x, y, z, rx, ry, rz, fig = values
+                self.robot.move_pose(
+                    [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+                self.pose[39] = 1
+        except Exception as e:
+            self.logger.error("Error during line cut")
+            self.logger.error(f"{self.robot.format_error(e)}")
+            self.pose[39] = 2
+        finally:
+            self.pose[38] = 0
+
     def run_proc(self, control_pipe, slave_mode_lock, log_queue, logging_dir, control_to_archiver_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
@@ -1240,17 +1286,22 @@ class Cobotta_Pro_CON:
                 elif command["command"] == "release_hand":
                     self.logger.info("Release hand")
                     self.send_release()
+                elif command["command"] == "line_cut":
+                    self.logger.info("Line cut not during MQTT control")
+                    self.line_cut()
                 elif command["command"] == "clear_error":
                     self.clear_error()
                 elif command["command"] == "start_mqtt_control":
                     self.mqtt_control_loop()
                 elif command["command"] == "tool_change":
+                    self.logger.info("Tool change not during MQTT control")
                     self.tool_change_not_in_rt()
                 elif command["command"] == "jog_joint":
                     self.jog_joint(**command["params"])
                 elif command["command"] == "jog_tcp":
                     self.jog_tcp(**command["params"])
                 elif command["command"] == "demo_put_down_box":
+                    self.logger.info("Demo put down box not during MQTT control")
                     self.demo_put_down_box()
                 elif command["command"] == "change_log_file":
                     # MQTTControl時以外にログファイルを変更する場合に対応

@@ -1705,3 +1705,61 @@ class DensoRobot:
         """
         i = self.SysState()
         return self.fetch_from_sys_state(i, 10)
+
+    def DevH(self, Pn1: str, Pn2: str) -> str:
+        """
+        ツール座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
+        オフセット<Pn2>のＦｉｇ値は無視されます． 
+        書式 DevH ( <Pn1>, <Pn2> ) 
+        
+        <Pn1> ： [in] P 型  (POSEDATA) 
+        <Pn2> ： [in] P 型  (POSEDATA) 
+        戻り値 ： P 型   
+        (VT_VARIANT[VT_R8|VT_ARRAY:7 要素]) 
+        現在有効になっているツール定義（カレントツール）の座標をベースに計算が行われます．
+        """
+        return self._bcap.robot_execute(self._hRob, "DevH", [Pn1, Pn2])
+
+    def OutRange(
+        self, Pose: str, ToolDef: str | int = -1, WorkDef: str | int = -1,
+    ) -> int:
+        """
+        位置データがロボットの可動範囲内であるかを返します． 
+        <Pose>が J 型指定の場合は，ツール座標，ワーク座標は無視されます．ツール座標，およびワーク座標を
+        POSEDATA 型データで指定できるのは，Version.2.0.*以降のコントローラだけです． 
+        書式 OutRange( <Pose>[, <ToolDef> [, <WorkDef>]] ) 
+        
+        <Pose> ： [in] POSEDATA の値（P 型，J 型，T 型のいずれか） 
+        <ToolDef> ： [in]ツール座標  POSEDATA 型（P 型）  か  VT_I4 
+        POSEDATA 型（P 型）の値の場合  :  ツール座標 
+        VT_I4  の場合  :  ツール番号（-1(省略時)は現在のツール番号） 
+        <WorkDef> ： [in]ワーク座標  POSEDATA 型（P 型）  か  VT_I4 
+        POSEDATA 型（P 型）の場合  :  ワーク座標 
+        VT_I4  の場合  :  ワーク番号（-1(省略時)は現在のワーク番号） 
+        戻り値 ： VT_I4 
+        0:可動範囲内 
+        1～63:ソフトリミットである軸のビット 
+        -1:軸構成上計算不可能な位置 
+        -2:特異点 
+        """
+        return self._bcap.robot_execute(
+            self._hRob, "OutRange", [Pose, ToolDef, WorkDef])
+
+    def dev_h(self, pose: List[float], offset: List[float]) -> List[float]:
+        """
+        ツール座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
+        """
+        if len(pose) != 6:
+            raise ValueError(f"pose must be 6 elements, got {len(pose)}")
+        if len(offset) != 6:
+            raise ValueError(f"offset must be 6 elements, got {len(offset)}")
+        x, y, z, rx, ry, rz, fig = pose + [0]
+        pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [0]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        dst_pd = self.DevH(pose_pd, offset_pd)
+    
+
+
+        ret = parse_posedata(ret)
+        return ret

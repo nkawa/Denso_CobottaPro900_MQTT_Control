@@ -128,6 +128,12 @@ class Cobotta_Pro_MQTT:
                     if js["put_down_box"]:
                         self.pose[16] = 1
                         self.pose[21] = 1
+            
+            if "line_cut" in js:
+                if self.pose[38] == 0:
+                    if js["line_cut"]:
+                        self.pose[16] = 1
+                        self.pose[38] = 1
 
             self.pose[20] = 1
             with self.mqtt_control_lock:
@@ -259,6 +265,8 @@ class ProcessManager:
         # [35]: ログ出力先の変更フラグ(contol-archiver用)
         # [36]: 0: 非常停止でない。1: 非常停止
         # [37]: スレーブモードの状態値。0: 通常モード。1: スレーブモード
+        # [38]: カッター移動の実行フラグ。0: 終了。1: 開始
+        # [39]: カッター移動の完了状態。0: 未定義。1: 成功。2: 失敗
         self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()
@@ -381,6 +389,9 @@ class ProcessManager:
 
     def release_hand(self):
         self._send_command_to_control({"command": "release_hand"})
+
+    def line_cut(self):
+        self._send_command_to_control({"command": "line_cut"})
 
     def start_mqtt_control(self):
         self._send_command_to_control({"command": "start_mqtt_control"})
