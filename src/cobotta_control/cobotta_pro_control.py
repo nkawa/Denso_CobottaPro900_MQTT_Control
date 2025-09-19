@@ -1226,7 +1226,7 @@ class Cobotta_Pro_CON:
 
     def _line_cut_impl_1(self) -> None:
         current_pose = self.robot.get_current_pose()
-        offset = [450, 0, 0, 0, 0, 0]
+        offset = [400, 0, 0, 0, 0, 0]
         x, y, z, rx, ry, rz, fig = current_pose + [-1]
         current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
         x, y, z, rx, ry, rz, fig = offset + [-1]
