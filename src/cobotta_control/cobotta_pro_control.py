@@ -296,7 +296,7 @@ class Cobotta_Pro_CON:
                 target_state_abs_joint_diff_limit).any()
             ):
                 # 強制停止する。強制停止しないとエラーメッセージを返すのが複雑になる
-                raise ValueError("Target and state are too different")
+                raise ValueError(f"Target and state are too different. State: {state}, Target: {target}, Last target: {last_target}, Diff limit: {target_state_abs_joint_diff_limit}")
 
             last_target = target
 
