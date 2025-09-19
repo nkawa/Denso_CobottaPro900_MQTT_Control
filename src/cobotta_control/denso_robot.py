@@ -1706,6 +1706,26 @@ class DensoRobot:
         i = self.SysState()
         return self.fetch_from_sys_state(i, 10)
 
+    def Dev(self, Pn1: str, Pn2: str) -> str:
+        """
+        ベース座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
+        オフセット<Pn2>のＦｉｇ値は無視されます． 
+        書式 Dev ( <Pn1>, <Pn2> ) 
+        
+        <Pn1> ： [in] P 型  (POSEDATA) 
+        <Pn2> ： [in] P 型  (POSEDATA) 
+        戻り値 ： P 型   
+        (VT_VARIANT[VT_R8|VT_ARRAY:7 要素]) 
+        
+        使用例  
+        ――――――――――――――――――――――――――――――――――――――――――― 
+        Dim vResult As Variant 
+        
+        vResult = caoRob.Execute("Dev", Array("P10","P(100, 200, 300, 180, 0, 180)" ))   
+        ‘P10 + P(100,200,300, 180, 0, 180)の位置を計算 
+        """
+        return self._bcap.robot_execute(self._hRob, "Dev", [Pn1, Pn2])
+
     def DevH(self, Pn1: str, Pn2: str) -> str:
         """
         ツール座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
@@ -1744,22 +1764,3 @@ class DensoRobot:
         """
         return self._bcap.robot_execute(
             self._hRob, "OutRange", [Pose, ToolDef, WorkDef])
-
-    def dev_h(self, pose: List[float], offset: List[float]) -> List[float]:
-        """
-        ツール座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
-        """
-        if len(pose) != 6:
-            raise ValueError(f"pose must be 6 elements, got {len(pose)}")
-        if len(offset) != 6:
-            raise ValueError(f"offset must be 6 elements, got {len(offset)}")
-        x, y, z, rx, ry, rz, fig = pose + [0]
-        pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
-        x, y, z, rx, ry, rz, fig = offset + [0]
-        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
-        dst_pd = self.DevH(pose_pd, offset_pd)
-    
-
-
-        ret = parse_posedata(ret)
-        return ret

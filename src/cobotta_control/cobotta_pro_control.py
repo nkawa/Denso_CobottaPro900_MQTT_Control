@@ -1250,13 +1250,80 @@ class Cobotta_Pro_CON:
             self.robot.move_pose(
                 [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
 
+    def _line_cut_impl_2(self) -> None:
+        # ロボットのある作業台と反対側に、箱を置き、その左上の辺をアームの奥から手前側に切る
+        # 前提の動き
+        # VRでおおまかな位置を合わせておくこと
+        current_pose = self.robot.get_current_pose()
+        # ベース座標系のグリッドに沿った位置に合わせる
+        near_line_start_pose = current_pose.copy()
+        near_line_start_pose[3] = -135
+        near_line_start_pose[4] = 0
+        near_line_start_pose[5] = 0
+        self.robot.move_pose(near_line_start_pose, interpolation=1, fig=-3)
+        # 箱に接触するまで位置を調整する
+        # 力センサの値がおかしい場合は手動モードでダイレクトティーチングすれば正しくなる
+        # TODO: y軸方向に接触した後に、z軸方向に接触するように動かすと、
+        # y軸方向の力は同じままではなく一般的には大きくなり強い力がかかる恐れがある
+        # TODO: 箱をテープで止めるのでは不十分
+        line_start_pose = near_line_start_pose.copy()
+        old_forces = self.robot.ForceValue()
+        self.logger.info(f"Old forces: {old_forces}")
+        dy = 0
+        dz = 0
+        while True:
+            forces = self.robot.ForceValue()
+            y_touched = abs(forces[1] - old_forces[1]) > 10
+            z_touched = abs(forces[2] - old_forces[2]) > 10
+            if (y_touched and z_touched) or (dy > 50) or (dz < -50):
+                self.logger.info(f"New forces: {forces}, y_touched: {y_touched}, z_touched: {z_touched}, dy: {dy}, dz: {dz}")
+                break
+            if not y_touched:
+                dy += 1
+                near_line_start_pose[1] = line_start_pose[1] + dy
+            if not z_touched:
+                dz -= 1
+                near_line_start_pose[2] = line_start_pose[2] + dz
+            self.robot.move_pose(near_line_start_pose, interpolation=2, fig=-2)
+        if (dy > 50) or (dz < -50):
+            raise ValueError("Failed to touch the line")
+
+        current_pose = near_line_start_pose
+        offset = [400, 0, 0, 0, 0, 0]
+        # 以降_line_cut_impl_1とDevH以外同じ
+        x, y, z, rx, ry, rz, fig = current_pose + [-1]
+        current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [-1]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # ツール座標系で指定したオフセットを足し合わせる
+        goal = self.robot.Dev(current_pose_pd, offset_pd)
+        x, y, z, rx, ry, rz, fig = goal
+        goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # 目的地が移動可能エリア内か確認する
+        is_out_range = self.robot.OutRange(goal_pd)
+        if is_out_range != 0:
+            raise ValueError(
+                f"Goal is out of range. is_out_range: {is_out_range}")
+        else:
+            values = []
+            for value_str in goal_pd.strip("P()").split(","):
+                value_str = value_str.strip()
+                value = float(value_str)
+                values.append(value)
+            x, y, z, rx, ry, rz, fig = values
+            self.robot.move_pose(
+                [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+
     def line_cut(self) -> None:
         try:
             if self.tool_id != 3:
                 raise ValueError("Tool is not the cutter")
             line_cut_mode = 1
             if line_cut_mode == 1:
+                # 任意の方向に切れる
                 self._line_cut_impl_1()
+                # 特定の場所の箱の特定の方向にしか切れない
+                # self._line_cut_impl_2()
             else:
                 raise ValueError("Unknown line cut mode")
             self.pose[39] = 1
