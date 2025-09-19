@@ -1224,35 +1224,42 @@ class Cobotta_Pro_CON:
         self.logging_dir = logging_dir
         self.pose[33] = 0
 
+    def _line_cut_impl_1(self) -> None:
+        current_pose = self.robot.get_current_pose()
+        offset = [450, 0, 0, 0, 0, 0]
+        x, y, z, rx, ry, rz, fig = current_pose + [-1]
+        current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [-1]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # ツール座標系で指定したオフセットを足し合わせる
+        goal = self.robot.DevH(current_pose_pd, offset_pd)
+        x, y, z, rx, ry, rz, fig = goal
+        goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # 目的地が移動可能エリア内か確認する
+        is_out_range = self.robot.OutRange(goal_pd)
+        if is_out_range != 0:
+            raise ValueError(
+                f"Goal is out of range. is_out_range: {is_out_range}")
+        else:
+            values = []
+            for value_str in goal_pd.strip("P()").split(","):
+                value_str = value_str.strip()
+                value = float(value_str)
+                values.append(value)
+            x, y, z, rx, ry, rz, fig = values
+            self.robot.move_pose(
+                [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+
     def line_cut(self) -> None:
         try:
             if self.tool_id != 3:
                 raise ValueError("Tool is not the cutter")
-            current_pose = self.robot.get_current_pose()
-            offset = [450, 0, 0, 0, 0, 0]
-            x, y, z, rx, ry, rz, fig = current_pose + [-1]
-            current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
-            x, y, z, rx, ry, rz, fig = offset + [-1]
-            offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
-            # ツール座標系で指定したオフセットを足し合わせる
-            goal = self.robot.DevH(current_pose_pd, offset_pd)
-            x, y, z, rx, ry, rz, fig = goal
-            goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
-            # 目的地が移動可能エリア内か確認する
-            is_out_range = self.robot.OutRange(goal_pd)
-            if is_out_range != 0:
-                raise ValueError(
-                    f"Goal is out of range. is_out_range: {is_out_range}")
+            line_cut_mode = 1
+            if line_cut_mode == 1:
+                self._line_cut_impl_1()
             else:
-                values = []
-                for value_str in goal_pd.strip("P()").split(","):
-                    value_str = value_str.strip()
-                    value = float(value_str)
-                    values.append(value)
-                x, y, z, rx, ry, rz, fig = values
-                self.robot.move_pose(
-                    [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
-                self.pose[39] = 1
+                raise ValueError("Unknown line cut mode")
+            self.pose[39] = 1
         except Exception as e:
             self.logger.error("Error during line cut")
             self.logger.error(f"{self.robot.format_error(e)}")
