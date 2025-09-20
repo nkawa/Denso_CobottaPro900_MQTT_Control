@@ -203,10 +203,14 @@ class Cobotta_Pro_CON:
         """リアルタイム制御ループ"""
         self.last = 0
         self.logger.info("Start Control Loop")
+        # 状態値が最新の値になるようにする
+        time.sleep(1)
         self.pose[19] = 0
         self.pose[20] = 0
         target_stop = None
         sw = StopWatch()
+        last_target = None
+
         while True:
             sw.start("Get shared memory")
             now = time.time()
@@ -228,6 +232,10 @@ class Cobotta_Pro_CON:
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
+                # ロボットにコマンドを送る前は、非常停止が押されているかを
+                # スレーブモードが解除されているかで確認する
+                if self.pose[37] != 1:
+                    raise ValueError("Robot is not in servo mode")
                 continue
 
             # 目標値を取得しているかを確認
@@ -237,6 +245,10 @@ class Cobotta_Pro_CON:
                 # 取得する前に終了する場合即時終了可能
                 if stop:
                     return True
+                # ロボットにコマンドを送る前は、非常停止が押されているかを
+                # スレーブモードが解除されているかで確認する
+                if self.pose[37] != 1:
+                    raise ValueError("Robot is not in servo mode")
                 continue
 
             # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
@@ -272,13 +284,22 @@ class Cobotta_Pro_CON:
                 self.logger.warning("target reached maximum threshold")
             target = target_th
 
-            # 目標値が状態値から大きく離れた場合は制御を停止する
-#            if (np.abs(target - state) > 
-#                target_state_abs_joint_diff_limit).any():
-#                stop = 1
-#                code_stop = 1
-#                message_stop = "目標値が状態値から離れすぎています"
-            
+            # 目標値が状態値から大きく離れた場合
+            # すでに目標値を受け取っていない場合はすぐに、
+            # 目標値を受け取っている場合は前回の目標値からも大きく離れた場合に停止させる
+            if (
+                (np.abs(target - state) > 
+                target_state_abs_joint_diff_limit).any()
+            ) and (
+                last_target is None or
+                (np.abs(target - last_target) > 
+                target_state_abs_joint_diff_limit).any()
+            ):
+                # 強制停止する。強制停止しないとエラーメッセージを返すのが複雑になる
+                raise ValueError(f"Target and state are too different. State: {state}, Target: {target}, Last target: {last_target}, Diff limit: {target_state_abs_joint_diff_limit}")
+
+            last_target = target
+
             sw.lap("First target")
             if self.last == 0:
                 self.logger.info("Start sending control command")
@@ -322,6 +343,10 @@ class Cobotta_Pro_CON:
                     self.last_target_delayed_velocity = np.zeros(6)
 
                 self.last_control_velocity = np.zeros(6)
+                # ロボットにコマンドを送る前は、非常停止が押されているかを
+                # スレーブモードが解除されているかで確認する
+                if self.pose[37] != 1:
+                    raise ValueError("Robot is not in servo mode")
                 continue
 
             sw.lap("Check stop")
@@ -678,6 +703,11 @@ class Cobotta_Pro_CON:
                 self.logger.error("Error in control loop")
                 self.logger.error(f"{self.robot.format_error(e)}")
 
+                # 目標値が状態値から大きく離れた場合は自動復帰しない
+                if str(e) == "Target and state are too different":
+                    self.pose[16] = 0
+                    return False
+
                 # 必ずスレーブモードから抜ける
                 try:
                     self.leave_servo_mode()
@@ -694,6 +724,14 @@ class Cobotta_Pro_CON:
                     else:
                         self.pose[16] = 0
                         return False
+
+                # 非常停止ボタンの状態値を最新にするまで待つ必要がある
+                time.sleep(1)
+                # 非常停止ボタンが押された場合は自動復帰しない
+                if self.pose[36] == 1:
+                    self.logger.error("Emergency stop is pressed")
+                    self.pose[16] = 0
+                    return False
 
                 # タイムアウトの場合は接続からやり直す
                 if ((type(e) is ORiNException and
@@ -779,6 +817,7 @@ class Cobotta_Pro_CON:
             # 停止フラグが成功の場合は、ユーザーが要求した場合のみありうる
             next_tool_id = self.pose[17].copy()
             put_down_box = self.pose[21].copy()
+            line_cut = self.pose[38].copy()
             change_log_file = self.pose[33].copy()
             if success_stop:
                 # ツールチェンジが要求された場合
@@ -809,6 +848,11 @@ class Cobotta_Pro_CON:
                     # 成功しても失敗してもループを継続する (ツールを変えることによる
                     # 予測できないエラーは起こらないため)
                     self.demo_put_down_box()
+                elif line_cut != 0:
+                    self.logger.info("User required line cut")
+                    # 成功しても失敗してもループを継続する (ツールを変えることによる
+                    # 予測できないエラーは起こらないため)
+                    self.line_cut()
                 # ログファイルを変更することが要求された場合
                 elif change_log_file != 0:
                     self.logger.info("User required change log file")
@@ -830,6 +874,10 @@ class Cobotta_Pro_CON:
                     # 要求コマンドのみリセット
                     self.pose[22] = 2
                     self.pose[21] = 0
+                elif line_cut != 0:
+                    # 要求コマンドのみリセット
+                    self.pose[39] = 2
+                    self.pose[38] = 0
                 # ループを抜ける
                 elif change_log_file != 0:
                     # 要求コマンドのみリセット
@@ -1176,6 +1224,116 @@ class Cobotta_Pro_CON:
         self.logging_dir = logging_dir
         self.pose[33] = 0
 
+    def _line_cut_impl_1(self) -> None:
+        current_pose = self.robot.get_current_pose()
+        offset = [400, 0, 0, 0, 0, 0]
+        x, y, z, rx, ry, rz, fig = current_pose + [-1]
+        current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [-1]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # ツール座標系で指定したオフセットを足し合わせる
+        goal = self.robot.DevH(current_pose_pd, offset_pd)
+        x, y, z, rx, ry, rz, fig = goal
+        goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # 目的地が移動可能エリア内か確認する
+        is_out_range = self.robot.OutRange(goal_pd)
+        if is_out_range != 0:
+            raise ValueError(
+                f"Goal is out of range. is_out_range: {is_out_range}")
+        else:
+            values = []
+            for value_str in goal_pd.strip("P()").split(","):
+                value_str = value_str.strip()
+                value = float(value_str)
+                values.append(value)
+            x, y, z, rx, ry, rz, fig = values
+            self.robot.move_pose(
+                [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+
+    def _line_cut_impl_2(self) -> None:
+        # ロボットのある作業台と反対側に、箱を置き、その左上の辺をアームの奥から手前側に切る
+        # 前提の動き
+        # VRでおおまかな位置を合わせておくこと
+        current_pose = self.robot.get_current_pose()
+        # ベース座標系のグリッドに沿った位置に合わせる
+        near_line_start_pose = current_pose.copy()
+        near_line_start_pose[3] = -135
+        near_line_start_pose[4] = 0
+        near_line_start_pose[5] = 0
+        self.robot.move_pose(near_line_start_pose, interpolation=1, fig=-3)
+        # 箱に接触するまで位置を調整する
+        # 力センサの値がおかしい場合は手動モードでダイレクトティーチングすれば正しくなる
+        # TODO: y軸方向に接触した後に、z軸方向に接触するように動かすと、
+        # y軸方向の力は同じままではなく一般的には大きくなり強い力がかかる恐れがある
+        # TODO: 箱をテープで止めるのでは不十分
+        line_start_pose = near_line_start_pose.copy()
+        old_forces = self.robot.ForceValue()
+        self.logger.info(f"Old forces: {old_forces}")
+        dy = 0
+        dz = 0
+        while True:
+            forces = self.robot.ForceValue()
+            y_touched = abs(forces[1] - old_forces[1]) > 10
+            z_touched = abs(forces[2] - old_forces[2]) > 10
+            if (y_touched and z_touched) or (dy > 50) or (dz < -50):
+                self.logger.info(f"New forces: {forces}, y_touched: {y_touched}, z_touched: {z_touched}, dy: {dy}, dz: {dz}")
+                break
+            if not y_touched:
+                dy += 1
+                near_line_start_pose[1] = line_start_pose[1] + dy
+            if not z_touched:
+                dz -= 1
+                near_line_start_pose[2] = line_start_pose[2] + dz
+            self.robot.move_pose(near_line_start_pose, interpolation=2, fig=-2)
+        if (dy > 50) or (dz < -50):
+            raise ValueError("Failed to touch the line")
+
+        current_pose = near_line_start_pose
+        offset = [400, 0, 0, 0, 0, 0]
+        # 以降_line_cut_impl_1とDevH以外同じ
+        x, y, z, rx, ry, rz, fig = current_pose + [-1]
+        current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [-1]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # ツール座標系で指定したオフセットを足し合わせる
+        goal = self.robot.Dev(current_pose_pd, offset_pd)
+        x, y, z, rx, ry, rz, fig = goal
+        goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # 目的地が移動可能エリア内か確認する
+        is_out_range = self.robot.OutRange(goal_pd)
+        if is_out_range != 0:
+            raise ValueError(
+                f"Goal is out of range. is_out_range: {is_out_range}")
+        else:
+            values = []
+            for value_str in goal_pd.strip("P()").split(","):
+                value_str = value_str.strip()
+                value = float(value_str)
+                values.append(value)
+            x, y, z, rx, ry, rz, fig = values
+            self.robot.move_pose(
+                [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+
+    def line_cut(self) -> None:
+        try:
+            if self.tool_id != 3:
+                raise ValueError("Tool is not the cutter")
+            line_cut_mode = 1
+            if line_cut_mode == 1:
+                # 任意の方向に切れる
+                self._line_cut_impl_1()
+                # 特定の場所の箱の特定の方向にしか切れない
+                # self._line_cut_impl_2()
+            else:
+                raise ValueError("Unknown line cut mode")
+            self.pose[39] = 1
+        except Exception as e:
+            self.logger.error("Error during line cut")
+            self.logger.error(f"{self.robot.format_error(e)}")
+            self.pose[39] = 2
+        finally:
+            self.pose[38] = 0
+
     def run_proc(self, control_pipe, slave_mode_lock, log_queue, logging_dir, control_to_archiver_queue):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
@@ -1200,18 +1358,24 @@ class Cobotta_Pro_CON:
                 elif command["command"] == "tidy_pose":
                     self.tidy_pose()
                 elif command["command"] == "release_hand":
+                    self.logger.info("Release hand")
                     self.send_release()
+                elif command["command"] == "line_cut":
+                    self.logger.info("Line cut not during MQTT control")
+                    self.line_cut()
                 elif command["command"] == "clear_error":
                     self.clear_error()
                 elif command["command"] == "start_mqtt_control":
                     self.mqtt_control_loop()
                 elif command["command"] == "tool_change":
+                    self.logger.info("Tool change not during MQTT control")
                     self.tool_change_not_in_rt()
                 elif command["command"] == "jog_joint":
                     self.jog_joint(**command["params"])
                 elif command["command"] == "jog_tcp":
                     self.jog_tcp(**command["params"])
                 elif command["command"] == "demo_put_down_box":
+                    self.logger.info("Demo put down box not during MQTT control")
                     self.demo_put_down_box()
                 elif command["command"] == "change_log_file":
                     # MQTTControl時以外にログファイルを変更する場合に対応

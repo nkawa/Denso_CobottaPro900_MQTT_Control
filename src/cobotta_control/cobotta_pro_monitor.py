@@ -138,6 +138,8 @@ class Cobotta_Pro_MON:
         last_error_monitored = 0
         is_in_tool_change = False
         is_put_down_box = False
+        last_is_in_servo_mode = None
+        last_is_emergency_stopped = None
         while True:
             # ログファイル変更時
             if self.pose[34] == 1:
@@ -201,6 +203,20 @@ class Cobotta_Pro_MON:
             # 終了した場合のみキーを追加
             if status_put_down_box is not None:
                 actual_joint_js["put_down_box"] = status_put_down_box
+
+            # カッター移動            
+            status_line_cut = None
+            line_cut = self.pose[38].copy()
+            if line_cut != 0:
+                if not line_cut:
+                    line_cut = True
+            else:
+                if line_cut:
+                    line_cut = False
+                    status_line_cut = bool(self.pose[39] == 1)
+            # 終了した場合のみキーを追加
+            if status_line_cut is not None:
+                actual_joint_js["line_cut"] = status_line_cut
 
             # TCP姿勢
             try:
@@ -290,15 +306,34 @@ class Cobotta_Pro_MON:
                 enabled = False
             actual_joint_js["enabled"] = enabled
 
+            # スレーブモードかどうかを取得する
+            is_in_servo_mode = False
+            try:
+                is_in_servo_mode = self.robot.is_in_servo_mode()
+            except Exception as e:
+                self.logger.warning(
+                    "Somehow failed in checking if robot is in servo mode. "
+                    "Enabled value may be incorrect.")
+                self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                self.reconnect_after_timeout(e)
+            # 切り替わるときにログを出す
+            if  is_in_servo_mode != last_is_in_servo_mode:
+                if is_in_servo_mode:
+                    self.logger.info("Robot is in servo mode")
+                else:
+                    self.logger.info("Robot is not in servo mode")
+            last_is_in_servo_mode = is_in_servo_mode
+            actual_joint_js["servo_mode"] = is_in_servo_mode
+            self.pose[37] = int(is_in_servo_mode)
+
+            is_emergency_stopped = False
             error = {}
-            # スレーブモード中にエラー情報を取得しようとすると、
+            # スレーブモード中にエラー情報や非常停止状態を取得しようとすると、
             # スレーブモードが切断される。
-            # 本プロセスでロボットがスレーブモードでないと判断した直後に、
-            # 別プロセスでスレーブモードに入る可能性があるので、
-            # 通常モードの場合のみ呼び出す
+            # 制御プロセスでスレーブモードを前提とした処理をしている間 (lock中) は、
+            # エラー情報や非常停止状態を取得しないようにする。
             with self.slave_mode_lock:
                 if self.pose[14] == 0:
-                    actual_joint_js["servo_mode"] = False
                     try:
                         errors = self.robot.get_cur_error_info_all()
                     except Exception as e:
@@ -312,18 +347,27 @@ class Cobotta_Pro_MON:
                     if len(errors) > 0:
                         error = {"errors": errors}
                         # 自動復帰可能エラー
-                        try:
-                            auto_recoverable = \
-                                self.robot.are_all_errors_stateless(errors)
-                            error["auto_recoverable"] = auto_recoverable
-                        except Exception as e:
-                            self.logger.error(
-                                "Error in are_all_errors_stateless: ")
-                            self.logger.error(f"{self.robot.format_error(e)}")
-                            self.reconnect_after_timeout(e)
-                            error["auto_recoverable"] = False
+                        auto_recoverable = \
+                            self.robot.are_all_errors_stateless(errors)
+                        error["auto_recoverable"] = auto_recoverable
+                    try:
+                        is_emergency_stopped = self.robot.is_emergency_stopped()
+                    except Exception as e:
+                        self.logger.warning(
+                            "Somehow failed in checking if robot is emergency stopped."
+                            "Thus value may be incorrect.")
+                        self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                        self.reconnect_after_timeout(e)
+            # 切り替わるときにログを出す
+            if is_emergency_stopped != last_is_emergency_stopped:
+                if is_emergency_stopped:
+                    self.logger.error("Emergency stop is ON")
                 else:
-                    actual_joint_js["servo_mode"] = True
+                    self.logger.info("Emergency stop is OFF")
+            last_is_emergency_stopped = is_emergency_stopped
+            actual_joint_js["emergency_stopped"] = is_emergency_stopped
+            self.pose[36] = int(is_emergency_stopped)
+
             if self.pose[15] == 0:
                 actual_joint_js["mqtt_control"] = "OFF"
             else:

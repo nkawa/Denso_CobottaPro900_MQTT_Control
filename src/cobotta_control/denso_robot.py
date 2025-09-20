@@ -86,6 +86,9 @@ E_ACCEL_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象加速度エラ
 E_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象エラー"].astype(bool), "コード"].apply(
     lambda x: original_error_to_python_error(int(x, 16))
 ))
+E_EMERGENCY_STOP_SET = set(df.loc[df["非常停止エラー"].astype(bool), "コード"].apply(
+    lambda x: original_error_to_python_error(int(x, 16))
+))
 
 class DensoRobot:
     """Denso Cobotta Pro 900の制御クラス。
@@ -1593,6 +1596,13 @@ class DensoRobot:
             ) in stateless_errors
         for error in errors)
 
+    def is_emergency_stop_in_errors(self, errors) -> bool:
+        return any(
+            original_error_to_python_error(
+                int(error["error_code"], 16)
+            ) in E_EMERGENCY_STOP_SET
+            for error in errors)
+
     def is_enabled(self) -> bool:
         """
         モータがONかどうか。
@@ -1626,3 +1636,131 @@ class DensoRobot:
         戻り値 ： 有効/無効(VT_BOOL)
         """
         return self._bcap.robot_execute(self._hRob, "GetAreaEnabled", [area_num])
+
+    def SysState(self) -> int:
+        """
+        コントローラのステータスを整数型データで返します。
+        各ビットの意味はfetch_from_sys_state参照。
+        スレーブモードでは実行できません。
+        """
+        return self._bcap.controller_execute(self._hCtrl, "SysState")
+
+    def fetch_from_sys_state(self, sys_state: int, idx: int) -> bool:
+        """
+        SysStateから特定のステータスを取得します。
+        各ビットの意味は以下の通りです。
+        0ビット目は最下位ビットのことです。
+        SYSSTATE_POS_TO_VALUE = {
+            0: 'ロボット運転中(プログラム動作中)',
+            1: 'ロボット異常',
+            2: 'サーボON中',  # "Motor"コマンドでONにしたときに対応  
+            3: 'ロボット初期化完了(I/O 標準、MiniIO専用モード選択時)/ ロボット電源入り完了(I/O 互換モード選択時)',
+            4: '自動モード',
+            5: '自動モードで起動権がスマートTP以外にある場合',
+            6: 'バッテリ切れ警告',
+            7: 'ロボット警告',
+            8: 'コンティニュスタート許可',
+            9: '予約',
+            10: '非常停止状態',
+            11: '自動運転イネーブル',
+            12: '防護停止',
+            13: '停止処理中',
+            14: '予約',
+            15: '予約',
+            16: 'プログラムスタートリセット',
+            17: 'Cal完了',
+            18: '手動モード',
+            19: '1サイクル完了',
+            20: 'ロボット動作中(指令値レベル)',
+            21: 'ロボット動作中(エンコーダレベル)',
+            22: '予約',
+            23: '予約',
+            24: 'コマンド処理完了',
+            25: '予約',
+            26: '予約',
+            27: '予約',
+            28: '予約',
+            29: '予約',
+            30: '予約',
+            31: '予約'
+        }
+        """
+        # ビット表示
+        # 出力例: 0b100000100100111100
+        # 仕様では32ビットだが手元での出力は18ビットであり、後半のビットが省かれていると
+        # 考えられる
+        b = bin(sys_state)
+        # 先頭の"0b"を削る
+        b = b[2:]
+        if idx < 0 or idx >= len(b):
+            raise ValueError(f"idx {idx} is out of range 0-{len(b)-1}")
+        # 左端が0ビット目になるように反転
+        b = b[::-1]
+        return b[idx] == "1"
+    
+    def is_emergency_stopped(self) -> bool:
+        """
+        非常停止状態かどうか。
+        スレーブモードでは実行できません。
+        """
+        i = self.SysState()
+        return self.fetch_from_sys_state(i, 10)
+
+    def Dev(self, Pn1: str, Pn2: str) -> str:
+        """
+        ベース座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
+        オフセット<Pn2>のＦｉｇ値は無視されます． 
+        書式 Dev ( <Pn1>, <Pn2> ) 
+        
+        <Pn1> ： [in] P 型  (POSEDATA) 
+        <Pn2> ： [in] P 型  (POSEDATA) 
+        戻り値 ： P 型   
+        (VT_VARIANT[VT_R8|VT_ARRAY:7 要素]) 
+        
+        使用例  
+        ――――――――――――――――――――――――――――――――――――――――――― 
+        Dim vResult As Variant 
+        
+        vResult = caoRob.Execute("Dev", Array("P10","P(100, 200, 300, 180, 0, 180)" ))   
+        ‘P10 + P(100,200,300, 180, 0, 180)の位置を計算 
+        """
+        return self._bcap.robot_execute(self._hRob, "Dev", [Pn1, Pn2])
+
+    def DevH(self, Pn1: str, Pn2: str) -> str:
+        """
+        ツール座標系で基準位置<Pn1>からのオフセット<Pn2>の座標を計算します．
+        オフセット<Pn2>のＦｉｇ値は無視されます． 
+        書式 DevH ( <Pn1>, <Pn2> ) 
+        
+        <Pn1> ： [in] P 型  (POSEDATA) 
+        <Pn2> ： [in] P 型  (POSEDATA) 
+        戻り値 ： P 型   
+        (VT_VARIANT[VT_R8|VT_ARRAY:7 要素]) 
+        現在有効になっているツール定義（カレントツール）の座標をベースに計算が行われます．
+        """
+        return self._bcap.robot_execute(self._hRob, "DevH", [Pn1, Pn2])
+
+    def OutRange(
+        self, Pose: str, ToolDef: str | int = -1, WorkDef: str | int = -1,
+    ) -> int:
+        """
+        位置データがロボットの可動範囲内であるかを返します． 
+        <Pose>が J 型指定の場合は，ツール座標，ワーク座標は無視されます．ツール座標，およびワーク座標を
+        POSEDATA 型データで指定できるのは，Version.2.0.*以降のコントローラだけです． 
+        書式 OutRange( <Pose>[, <ToolDef> [, <WorkDef>]] ) 
+        
+        <Pose> ： [in] POSEDATA の値（P 型，J 型，T 型のいずれか） 
+        <ToolDef> ： [in]ツール座標  POSEDATA 型（P 型）  か  VT_I4 
+        POSEDATA 型（P 型）の値の場合  :  ツール座標 
+        VT_I4  の場合  :  ツール番号（-1(省略時)は現在のツール番号） 
+        <WorkDef> ： [in]ワーク座標  POSEDATA 型（P 型）  か  VT_I4 
+        POSEDATA 型（P 型）の場合  :  ワーク座標 
+        VT_I4  の場合  :  ワーク番号（-1(省略時)は現在のワーク番号） 
+        戻り値 ： VT_I4 
+        0:可動範囲内 
+        1～63:ソフトリミットである軸のビット 
+        -1:軸構成上計算不可能な位置 
+        -2:特異点 
+        """
+        return self._bcap.robot_execute(
+            self._hRob, "OutRange", [Pose, ToolDef, WorkDef])
