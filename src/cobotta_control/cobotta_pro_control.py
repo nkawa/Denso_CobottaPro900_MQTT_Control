@@ -1262,7 +1262,7 @@ class Cobotta_Pro_CON:
         current_pose = self.robot.get_current_pose()
         # ベース座標系のグリッドに沿った位置に合わせる
         near_line_start_pose = current_pose.copy()
-        near_line_start_pose[3] = -135
+        near_line_start_pose[3] = 0
         near_line_start_pose[4] = 0
         near_line_start_pose[5] = 0
         self.robot.move_pose(near_line_start_pose, interpolation=1, fig=-3)
