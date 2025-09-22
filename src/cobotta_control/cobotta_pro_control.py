@@ -667,6 +667,11 @@ class Cobotta_Pro_CON:
         with self.slave_mode_lock:
             self.pose[14] = 1
         self.robot.enter_servo_mode()
+        # スレーブモードになるまでis_in_servo_modeを使って待つと
+        # 非常停止時に永久に待つ可能性があるので、固定時間だけ待つ
+        # 万が一スレーブモードになっていなくても自動復帰のループで
+        # 再びスレーブモードに入る試みをするので問題ない
+        time.sleep(1)
 
     def leave_servo_mode(self):
         # self.pose[14]は0のとき必ず通常モード。
