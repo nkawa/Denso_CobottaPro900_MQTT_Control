@@ -1262,7 +1262,7 @@ class Cobotta_Pro_CON:
         current_pose = self.robot.get_current_pose()
         # ベース座標系のグリッドに沿った位置に合わせる
         near_line_start_pose = current_pose.copy()
-        near_line_start_pose[3] = 0
+        near_line_start_pose[3] = -180
         near_line_start_pose[4] = 0
         near_line_start_pose[5] = 0
         self.robot.move_pose(near_line_start_pose, interpolation=1, fig=-3)
@@ -1271,29 +1271,44 @@ class Cobotta_Pro_CON:
         # TODO: y軸方向に接触した後に、z軸方向に接触するように動かすと、
         # y軸方向の力は同じままではなく一般的には大きくなり強い力がかかる恐れがある
         # TODO: 箱をテープで止めるのでは不十分
-        line_start_pose = near_line_start_pose.copy()
+        import copy
+        line_start_pose = copy.deepcopy(near_line_start_pose)
         old_forces = self.robot.ForceValue()
         self.logger.info(f"Old forces: {old_forces}")
         dy = 0
         dz = 0
+        cnt = 0
         while True:
+            cnt += 1
+            if cnt > 500:
+                break
             forces = self.robot.ForceValue()
-            y_touched = abs(forces[1] - old_forces[1]) > 10
-            z_touched = abs(forces[2] - old_forces[2]) > 10
+            y_not_touched = abs(forces[1] - old_forces[1]) < 5
+            z_not_touched = abs(forces[2] - old_forces[2]) < 5
+            y_bumped = abs(forces[1] - old_forces[1]) > 10
+            z_bumped = abs(forces[2] - old_forces[2]) > 10
+            y_touched = (not y_not_touched) and (not y_bumped)
+            z_touched = (not z_not_touched) and (not z_bumped)
             if (y_touched and z_touched) or (dy > 50) or (dz < -50):
                 self.logger.info(f"New forces: {forces}, y_touched: {y_touched}, z_touched: {z_touched}, dy: {dy}, dz: {dz}")
                 break
-            if not y_touched:
-                dy += 1
-                near_line_start_pose[1] = line_start_pose[1] + dy
-            if not z_touched:
-                dz -= 1
-                near_line_start_pose[2] = line_start_pose[2] + dz
-            self.robot.move_pose(near_line_start_pose, interpolation=2, fig=-2)
-        if (dy > 50) or (dz < -50):
+            if y_not_touched:
+                dy += 0.1
+            if z_not_touched:
+                dz -= 0.1
+            if y_bumped:
+                dy -= 0.1
+            if z_bumped:
+                dz += 0.1
+            line_start_pose[1] = near_line_start_pose[1] + dy
+            line_start_pose[2] = near_line_start_pose[2] + dz
+            self.robot.move_pose(line_start_pose, interpolation=2, fig=-2)
+        if (dy > 50) or (dz < -50) or (cnt > 500):
             raise ValueError("Failed to touch the line")
 
-        current_pose = near_line_start_pose
+        raise ValueError("Done")
+
+        current_pose = line_start_pose
         offset = [400, 0, 0, 0, 0, 0]
         # 以降_line_cut_impl_1とDevH以外同じ
         x, y, z, rx, ry, rz, fig = current_pose + [-1]
@@ -1319,6 +1334,196 @@ class Cobotta_Pro_CON:
             self.robot.move_pose(
                 [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
 
+    def get_stable_forces(self, n_sample: int = 50) -> List[float]:
+        raw_forces = []
+        for _ in range(n_sample):
+            time.sleep(0.008)
+            raw_force = self.robot.ForceValue()
+            raw_forces.append(raw_force)
+        raw_force = np.median(np.array(raw_forces), axis=0).tolist()
+        return raw_force
+
+    def _adjust_1d(
+        self,
+        pose: List[float],
+        baseline_forces: List[float],
+        index: int,
+        box_direction: int,
+        dist_min: int,
+        dist_max: int,
+    ) -> bool:
+        dist = 0
+        dist_step = 5
+        force_min = 1
+        force_max = 10
+        max_trial = 200
+        trial = 0
+        baseline_force = baseline_forces[index]
+        move_pose = pose.copy()
+        while True:
+            if trial >= max_trial:
+                return False
+            # time.sleep(1)
+            # raw_force = self.robot.ForceValue()[index]
+            raw_force = self.get_stable_forces()[index]
+            force = abs(raw_force - baseline_force)
+            # 力センサ値が大きい場合ほど箱に近いので遠ざける
+            if force > force_max:
+                dist_step = 1
+                dist -= dist_step * box_direction
+            # 逆
+            elif force < force_min:
+                dist += dist_step * box_direction
+            else:
+                return True
+            if dist < dist_min:
+                return False
+            if dist > dist_max:
+                return False
+            pose[index] = move_pose[index] + dist
+            self.robot.move_pose(pose, interpolation=2, fig=-2)
+
+    def _line_straight_cut(self, offset) -> None:
+        current_pose = self.robot.get_current_pose()
+        # 以降_line_cut_impl_1とDevH以外同じ
+        x, y, z, rx, ry, rz, fig = current_pose + [-1]
+        current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [-1]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # ツール座標系で指定したオフセットを足し合わせる
+        goal = self.robot.Dev(current_pose_pd, offset_pd)
+        x, y, z, rx, ry, rz, fig = goal
+        goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # 目的地が移動可能エリア内か確認する
+        is_out_range = self.robot.OutRange(goal_pd)
+        if is_out_range != 0:
+            raise ValueError(
+                f"Goal is out of range. is_out_range: {is_out_range}")
+        else:
+            values = []
+            for value_str in goal_pd.strip("P()").split(","):
+                value_str = value_str.strip()
+                value = float(value_str)
+                values.append(value)
+            x, y, z, rx, ry, rz, fig = values
+            self.robot.move_pose(
+                [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+
+    def _line_cut_impl_3(self) -> None:
+        # ロボットのある作業台と反対側に、箱を置き、その左上の辺をアームの奥から手前側に切る
+        # -180, 0, 0
+        # 180, 0, 90
+        # 180, 0, -180
+        # -180, 0, -90
+
+        # カット1回目
+        pose = self.robot.get_current_pose()
+        # VRでおおまかな位置を合わせておく
+
+        # 箱から高さ方向に十分遠ざける
+        pose[2] += 10
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 十分遠ざけた状態で力センサの基準値を取得
+        # baseline_forces = self.robot.ForceValue()
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+
+        # ベース座標系のグリッドに沿った位置に合わせる
+        pose[3] = -180
+        pose[4] = 0
+        pose[5] = 0
+        # 箱の位置に合わせる
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # TODO: 力センサの値が非接触でも移動すると数Nになるためうまく判定できない
+        # 力センサの値が十分信頼できない
+        if not self._adjust_1d(pose, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose, baseline_forces, 1, 1, -50, 25):
+            raise ValueError("Failed to adjust y axis")
+        # カット
+        self._line_straight_cut([350, 0, 0, 0, 0, 0])
+
+        # カット2回目
+        pose = self.robot.get_current_pose()
+        # 回転のために高さ方向に離す
+        pose[2] += 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 回転させる
+        pose[3] = 180
+        pose[4] = 0
+        pose[5] = 90
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        # 元に戻す
+        pose[2] -= 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # おおまかな位置を合わせる
+        pose[0] -= 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose, baseline_forces, 0, -1, -200, 25):
+            raise ValueError("Failed to adjust estimate")
+
+        # 箱から高さ方向に十分遠ざける
+        pose[2] += 10
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 十分遠ざけた状態で力センサの基準値を取得
+        # baseline_forces = self.robot.ForceValue()
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        # ベース座標系のグリッドに沿った位置に合わせる
+        pose[3] = 180
+        pose[4] = 0
+        pose[5] = 90
+        # 箱の位置に合わせる
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose, baseline_forces, 0, -1, -50, 25):
+            raise ValueError("Failed to adjust x axis")
+        # カット
+        self._line_straight_cut([0, 350, 0, 0, 0, 0])
+
+        # カット3回目
+        pose = self.robot.get_current_pose()
+        # 回転のために高さ方向に離す
+        pose[2] += 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 回転させる
+        pose[3] = 180
+        pose[4] = 0
+        pose[5] = 180
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        # 元に戻す
+        pose[2] -= 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        pose[1] -= 25
+        # おおまかな位置を合わせる
+        if not self._adjust_1d(pose, baseline_forces, 1, -1, -200, 25):
+            raise ValueError("Failed to adjust estimate")
+
+        # 箱から高さ方向に十分遠ざける
+        pose[2] += 10
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 十分遠ざけた状態で力センサの基準値を取得
+        # baseline_forces = self.robot.ForceValue()
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        # ベース座標系のグリッドに沿った位置に合わせる
+        pose[3] = 180
+        pose[4] = 0
+        pose[5] = 180
+        # 箱の位置に合わせる
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose, baseline_forces, 1, 1, -50, 25):
+            raise ValueError("Failed to adjust y axis")
+        # カット
+        self._line_straight_cut([-350, 0, 0, 0, 0, 0])
+
     def line_cut(self) -> None:
         try:
             if self.tool_id != 3:
@@ -1326,9 +1531,10 @@ class Cobotta_Pro_CON:
             line_cut_mode = 1
             if line_cut_mode == 1:
                 # 任意の方向に切れる
-                self._line_cut_impl_1()
+                # self._line_cut_impl_1()
                 # 特定の場所の箱の特定の方向にしか切れない
                 # self._line_cut_impl_2()
+                self._line_cut_impl_3()
             else:
                 raise ValueError("Unknown line cut mode")
             self.pose[39] = 1
