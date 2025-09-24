@@ -1415,13 +1415,65 @@ class Cobotta_Pro_CON:
         # 180, 0, 90
         # 180, 0, -180
         # -180, 0, -90
+        box_length = 300
+        buffer_length = 50
+        cut_length = box_length + buffer_length
+        cutter_center_to_edge = 80
+        cutter_center_to_holder = 35
+
+        # cutterのcenterを合わせるようにする
+        # c1--c4
+        # |    |
+        # |    |
+        # c2--c3
+
+        c1_near_up_joint = [-53.29, -0.12, 132.92, 0, 47.15, 126.81]
+        c1_near_up = [266.74, -156.96, 220.03, 180, 0, 0]
+        c1_near_joint = [-53.29, 5.76, 137.38, 0.01, 36.83, 126.81]
+        c1_near = [266.74, -156.96, 170.38, 180, 0, 0]
+        c1_joint = [-52.18, 6.66, 138.77, 0, 34.57, 127.82]
+        c1 = [266.74, -147.97, 160.41, -180, 0, 0]
+
+        # new
+        c1_near_up_joint = [-41.87, 10.31, 122.77, 0, 47.07, 138.13]
+        c1_near_up = [359.69, -161.31, 210.36, -180, 0, 0]
+        c1_near = [359.71, -161.59, 170.96, -180, 0, 0]
+        c1_joint = [-40.75, 14.90, 126.99, 0, 38.2, 139.28]
+        
+        c1 = [359.71, -151.59, 160.96, -180, 0, 0]
+        c1_near = np.array(c1) + np.array([0, -10, 10, 0, 0, 0]).tolist()
+        c2 = np.array(c1) + np.array([box_length, 0, 0, 0, 0, 90]).tolist()
+        c2_near = np.array(c2) + np.array([10, 0, 10, 0, 0, 0])
+        c3 = np.array(c2) + np.array([0, box_length, 0, 0, 0, 90]).tolist()
+        c3_near = np.array(c3) + np.array([0, 10, 10, 0, 0, 0]).tolist()
+        c4 = np.array(c3) + np.array([-box_length, 0, 0, 0, 0, 90]).tolist()
+        c4_near = np.array(c4) + np.array([-10, 0, 10, 0, 0, 0]).tolist()
+
+        # 元のアルゴリズムでの位置
+        # c2_joint = [-28.94, 28.33, 105.54, 0, 46.19, 61.08]
+        # c2 = [515.69, -148, 153.62, -180, 0, 90]
+        # 微調整した位置       
+        # c2_near_up_joint = [-25.7, 24.1, 101.36, 0, 54.46, 64.23]
+        # c2_near_up = [526.24, -120.1, 214.3, -180, 0, 90]
+        # c2_near_joint = [-25.7, 27.75, 104.5, 0.01, 47.78, 64.23]
+        # c2_near = [526.1, -120.03, 164.14, -180, 0, 90]
+        # c2_joint = [-26.18, 27.74, 106.61, 0.01, 45.73, 63.75]
+        # c2 = [515.98, -119.98, 153.76, -180, 0, 90]
+
+        # x = 388ならば4方向目のカットまでできる
+        # 長軸方向の位置は力制御では検出できないので座標で合わせるしかない
+
+        # 4方向にカットするとj6は360度回るので初期値は制限値から
+        # 360度離れた値にする必要がある
+        self.robot.move_joint(c1_near_up_joint)
+        self.robot.move_pose(c1_near, interpolation=1, fig=-3)
 
         # カット1回目
         pose = self.robot.get_current_pose()
         # VRでおおまかな位置を合わせておく
 
         # 箱から高さ方向に十分遠ざける
-        pose[2] += 10
+        # pose[2] += 10
         self.robot.move_pose(pose, interpolation=1, fig=-3)
         # 十分遠ざけた状態で力センサの基準値を取得
         # baseline_forces = self.robot.ForceValue()
@@ -1441,7 +1493,7 @@ class Cobotta_Pro_CON:
         if not self._adjust_1d(pose, baseline_forces, 1, 1, -50, 25):
             raise ValueError("Failed to adjust y axis")
         # カット
-        self._line_straight_cut([350, 0, 0, 0, 0, 0])
+        self._line_straight_cut([cut_length, 0, 0, 0, 0, 0])
 
         # カット2回目
         pose = self.robot.get_current_pose()
@@ -1455,6 +1507,7 @@ class Cobotta_Pro_CON:
         self.robot.move_pose(pose, interpolation=1, fig=-3)
         self.robot.ForceSensor()
         baseline_forces = self.get_stable_forces()
+
         # 元に戻す
         pose[2] -= 25
         self.robot.move_pose(pose, interpolation=1, fig=-3)
@@ -1463,6 +1516,10 @@ class Cobotta_Pro_CON:
         self.robot.move_pose(pose, interpolation=1, fig=-3)
         if not self._adjust_1d(pose, baseline_forces, 0, -1, -200, 25):
             raise ValueError("Failed to adjust estimate")
+        # 箱を切っていくと箱の強度が下がるので、高さを合わせてから横を合わせることを
+        # 厳密に守る必要がある
+        # あるいは毎回合わせないほうが良いかもしれないがどちらとも言えない
+        pose[0] += 10
 
         # 箱から高さ方向に十分遠ざける
         pose[2] += 10
@@ -1481,8 +1538,10 @@ class Cobotta_Pro_CON:
             raise ValueError("Failed to adjust z axis")
         if not self._adjust_1d(pose, baseline_forces, 0, -1, -50, 25):
             raise ValueError("Failed to adjust x axis")
+        # self.logger.info("Wait for 5 seconds before cutting")
+        # time.sleep(5)
         # カット
-        self._line_straight_cut([0, 350, 0, 0, 0, 0])
+        self._line_straight_cut([0, cut_length, 0, 0, 0, 0])
 
         # カット3回目
         pose = self.robot.get_current_pose()
@@ -1503,6 +1562,10 @@ class Cobotta_Pro_CON:
         # おおまかな位置を合わせる
         if not self._adjust_1d(pose, baseline_forces, 1, -1, -200, 25):
             raise ValueError("Failed to adjust estimate")
+        # 箱を切っていくと箱の強度が下がるので、高さを合わせてから横を合わせることを
+        # 厳密に守る必要がある
+        # あるいは毎回合わせないほうが良いかもしれないがどちらとも言えない
+        pose[1] += 10
 
         # 箱から高さ方向に十分遠ざける
         pose[2] += 10
@@ -1521,8 +1584,56 @@ class Cobotta_Pro_CON:
             raise ValueError("Failed to adjust z axis")
         if not self._adjust_1d(pose, baseline_forces, 1, 1, -50, 25):
             raise ValueError("Failed to adjust y axis")
+        # self.logger.info("Wait for 5 seconds before cutting")
+        # time.sleep(5)
         # カット
-        self._line_straight_cut([-350, 0, 0, 0, 0, 0])
+        self._line_straight_cut([-cut_length, 0, 0, 0, 0, 0])
+
+        # カット4回目
+        pose = self.robot.get_current_pose()
+        # 回転のために高さ方向に離す
+        pose[2] += 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 回転させる
+        pose[3] = 180
+        pose[4] = 0
+        pose[5] = -90
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        # 元に戻す
+        pose[2] -= 25
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        pose[0] += 25
+        # おおまかな位置を合わせる
+        if not self._adjust_1d(pose, baseline_forces, 0, 1, -25, 200):
+            raise ValueError("Failed to adjust estimate")
+        # 箱を切っていくと箱の強度が下がるので、高さを合わせてから横を合わせることを
+        # 厳密に守る必要がある
+        # あるいは毎回合わせないほうが良いかもしれないがどちらとも言えない
+        pose[0] -= 10
+
+        # 箱から高さ方向に十分遠ざける
+        pose[2] += 10
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        # 十分遠ざけた状態で力センサの基準値を取得
+        # baseline_forces = self.robot.ForceValue()
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        # ベース座標系のグリッドに沿った位置に合わせる
+        pose[3] = 180
+        pose[4] = 0
+        pose[5] = -90
+        # 箱の位置に合わせる
+        self.robot.move_pose(pose, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose, baseline_forces, 0, 1, -25, 50):
+            raise ValueError("Failed to adjust y axis")
+        # self.logger.info("Wait for 5 seconds before cutting")
+        # time.sleep(5)
+        # カット
+        self._line_straight_cut([0, -cut_length, 0, 0, 0, 0])
 
     def line_cut(self) -> None:
         try:
