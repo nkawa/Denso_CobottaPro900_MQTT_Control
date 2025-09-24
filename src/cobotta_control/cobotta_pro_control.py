@@ -1473,7 +1473,7 @@ class Cobotta_Pro_CON:
         # VRでおおまかな位置を合わせておく
 
         # 箱から高さ方向に十分遠ざける
-        # pose[2] += 10
+        pose[2] += 10
         self.robot.move_pose(pose, interpolation=1, fig=-3)
         # 十分遠ざけた状態で力センサの基準値を取得
         # baseline_forces = self.robot.ForceValue()
