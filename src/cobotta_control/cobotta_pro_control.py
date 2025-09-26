@@ -652,6 +652,13 @@ class Cobotta_Pro_CON:
             self.logger.error("Error moving to tidy pose")
             self.logger.error(f"{self.robot.format_error(e)}")
 
+    def move_joint(self, joints: List[float]) -> None:
+        try:
+            self.robot.move_joint_until_completion(joints)
+        except Exception as e:
+            self.logger.error("Error moving to specified joint")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
     def clear_error(self) -> None:
         try:
             self.robot.clear_error()
@@ -667,6 +674,11 @@ class Cobotta_Pro_CON:
         with self.slave_mode_lock:
             self.pose[14] = 1
         self.robot.enter_servo_mode()
+        # スレーブモードになるまでis_in_servo_modeを使って待つと
+        # 非常停止時に永久に待つ可能性があるので、固定時間だけ待つ
+        # 万が一スレーブモードになっていなくても自動復帰のループで
+        # 再びスレーブモードに入る試みをするので問題ない
+        time.sleep(1)
 
     def leave_servo_mode(self):
         # self.pose[14]は0のとき必ず通常モード。
@@ -1257,7 +1269,7 @@ class Cobotta_Pro_CON:
         current_pose = self.robot.get_current_pose()
         # ベース座標系のグリッドに沿った位置に合わせる
         near_line_start_pose = current_pose.copy()
-        near_line_start_pose[3] = -135
+        near_line_start_pose[3] = -180
         near_line_start_pose[4] = 0
         near_line_start_pose[5] = 0
         self.robot.move_pose(near_line_start_pose, interpolation=1, fig=-3)
@@ -1266,29 +1278,44 @@ class Cobotta_Pro_CON:
         # TODO: y軸方向に接触した後に、z軸方向に接触するように動かすと、
         # y軸方向の力は同じままではなく一般的には大きくなり強い力がかかる恐れがある
         # TODO: 箱をテープで止めるのでは不十分
-        line_start_pose = near_line_start_pose.copy()
+        import copy
+        line_start_pose = copy.deepcopy(near_line_start_pose)
         old_forces = self.robot.ForceValue()
         self.logger.info(f"Old forces: {old_forces}")
         dy = 0
         dz = 0
+        cnt = 0
         while True:
+            cnt += 1
+            if cnt > 500:
+                break
             forces = self.robot.ForceValue()
-            y_touched = abs(forces[1] - old_forces[1]) > 10
-            z_touched = abs(forces[2] - old_forces[2]) > 10
+            y_not_touched = abs(forces[1] - old_forces[1]) < 5
+            z_not_touched = abs(forces[2] - old_forces[2]) < 5
+            y_bumped = abs(forces[1] - old_forces[1]) > 10
+            z_bumped = abs(forces[2] - old_forces[2]) > 10
+            y_touched = (not y_not_touched) and (not y_bumped)
+            z_touched = (not z_not_touched) and (not z_bumped)
             if (y_touched and z_touched) or (dy > 50) or (dz < -50):
                 self.logger.info(f"New forces: {forces}, y_touched: {y_touched}, z_touched: {z_touched}, dy: {dy}, dz: {dz}")
                 break
-            if not y_touched:
-                dy += 1
-                near_line_start_pose[1] = line_start_pose[1] + dy
-            if not z_touched:
-                dz -= 1
-                near_line_start_pose[2] = line_start_pose[2] + dz
-            self.robot.move_pose(near_line_start_pose, interpolation=2, fig=-2)
-        if (dy > 50) or (dz < -50):
+            if y_not_touched:
+                dy += 0.1
+            if z_not_touched:
+                dz -= 0.1
+            if y_bumped:
+                dy -= 0.1
+            if z_bumped:
+                dz += 0.1
+            line_start_pose[1] = near_line_start_pose[1] + dy
+            line_start_pose[2] = near_line_start_pose[2] + dz
+            self.robot.move_pose(line_start_pose, interpolation=2, fig=-2)
+        if (dy > 50) or (dz < -50) or (cnt > 500):
             raise ValueError("Failed to touch the line")
 
-        current_pose = near_line_start_pose
+        raise ValueError("Done")
+
+        current_pose = line_start_pose
         offset = [400, 0, 0, 0, 0, 0]
         # 以降_line_cut_impl_1とDevH以外同じ
         x, y, z, rx, ry, rz, fig = current_pose + [-1]
@@ -1314,6 +1341,226 @@ class Cobotta_Pro_CON:
             self.robot.move_pose(
                 [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
 
+    def get_stable_forces(self, n_sample: int = 10) -> List[float]:
+        """力センサ値のノイズを減らした値を返す"""
+        raw_forces = []
+        for _ in range(n_sample):
+            time.sleep(0.008)
+            raw_force = self.robot.ForceValue()
+            raw_forces.append(raw_force)
+        raw_force = np.median(np.array(raw_forces), axis=0).tolist()
+        return raw_force
+
+    def _adjust_1d(
+        self,
+        pose: List[float],
+        baseline_forces: List[float],
+        index: int,
+        box_direction: int,
+        dist_min: int,
+        dist_max: int,
+        force_lim: int = 5,
+    ) -> bool:
+        """ある軸方向に接触するまで位置を調整する"""
+        dist = 0
+        dist_step = 5
+        max_trial = 50
+        trial = 0
+        baseline_force = baseline_forces[index]
+        move_pose = pose.copy()
+        # 一度接触するまでは大きなステップで動かす
+        touched_before = False
+        while True:
+            if trial >= max_trial:
+                return False
+            raw_force = self.get_stable_forces()[index]
+            force = abs(raw_force - baseline_force)
+            # 力が弱い場合はそのまま進む
+            if force < force_lim:
+                dist += dist_step * box_direction
+            else:
+                # 一度接触したら戻して、ステップを小さくして2回目の接触まで調整する
+                if not touched_before:
+                    dist_step = 1
+                    dist -= dist_step * box_direction
+                    touched_before = True
+                else:
+                    # ある軸方向に接触している時、他の軸にも力がかかるので、
+                    # 1mmだけ戻して接触を弱めておき、他の軸は他の軸で調整できるようにする
+                    dist_step = 1
+                    dist -= dist_step * box_direction
+                    pose[index] = move_pose[index] + dist
+                    self.robot.move_pose(pose, interpolation=2, fig=-2)
+                    return True
+            if dist < dist_min:
+                return False
+            if dist > dist_max:
+                return False
+            pose[index] = move_pose[index] + dist
+            self.robot.move_pose(pose, interpolation=2, fig=-2)
+
+    def _line_straight_cut(self, offset) -> None:
+        current_pose = self.robot.get_current_pose()
+        # 以降_line_cut_impl_1とDevH以外同じ
+        x, y, z, rx, ry, rz, fig = current_pose + [-1]
+        current_pose_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        x, y, z, rx, ry, rz, fig = offset + [-1]
+        offset_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # ツール座標系で指定したオフセットを足し合わせる
+        goal = self.robot.Dev(current_pose_pd, offset_pd)
+        x, y, z, rx, ry, rz, fig = goal
+        goal_pd = f"P({x}, {y}, {z}, {rx}, {ry}, {rz}, {fig})"
+        # 目的地が移動可能エリア内か確認する
+        is_out_range = self.robot.OutRange(goal_pd)
+        if is_out_range != 0:
+            raise ValueError(
+                f"Goal is out of range. is_out_range: {is_out_range}")
+        else:
+            values = []
+            for value_str in goal_pd.strip("P()").split(","):
+                value_str = value_str.strip()
+                value = float(value_str)
+                values.append(value)
+            x, y, z, rx, ry, rz, fig = values
+            self.robot.move_pose(
+                [x, y, z, rx, ry, rz], interpolation=2, fig=-2)
+
+    def _line_cut_impl_3(self) -> None:
+        """ロボットの存在する作業台上の箱を4方向から切る"""
+        # 箱はベース座標系に並行に置かれていることを前提とする
+        # 位置関係
+        #  アーム
+        #    |
+        # c1----c4
+        # |  　  |
+        # |  箱  |
+        # |  　  |
+        # c2----c3
+        # 箱の4角と、各角に対応するアーム先端の中心位置を一致させて、
+        # c1, c2, c3, c4とする
+        # c4-c1辺、c3-c4辺は完全に固定
+        # c1-c2辺、c2-c3辺は万力で動的に固定
+        # c4 -> c1 -> c2 -> c3の順にカットするのが望ましい
+        # (カットの後半ほど箱が歪みやすいため、
+        # カットの後半はカットで進む方向が完全に固定されている方向が望ましいため)
+        # c4-c1辺をカットするには、この辺のx >= 359.95であれば
+        # ロボットの姿勢の制限なくカットできることを確認している
+        # （もう少し小さくてもOKかもしれないが）
+        # 現状の力制御では、
+        # カッターは斜め上からではなく斜め下から刃を入れることが望ましい
+        # 箱の天板は凸より凹に歪んでいることが望ましい
+        # 辺はテープなどで補強した方が良い
+
+        ## パラメータ
+        # 箱の長さ
+        box_length_c4c1 = 285
+        box_length_c1c2 = 285
+        # カッターは箱の長さよりも先に進む必要があるため、その長さ
+        buffer_length = 115
+        # c4から位置を決める場合
+        # 最初のカットを行う角における関節角度。角とアーム先端の中心位置は高さを除き
+        # ぴったり合わせておく
+        # 長軸方向の位置は力制御では検出できないので座標で合わせるしかない
+        c4_true = [359.95, 137.72, 156.89, -180.0, 0.0, 270.0]
+        # c1, c2, c3, c4の近くで、箱の外側に位置する点
+        # ここからカットする辺に向かって力制御で接触させる
+        c1_near_offset = np.array([0, -5, 10, 0, 0, 0]).tolist()
+        c2_near_offset = np.array([20, 0, 10, 0, 0, 0]).tolist()
+        c3_near_offset = np.array([0, 20, 10, 0, 0, 0]).tolist()
+        c4_near_offset = np.array([-15, 0, 10, 0, 0, 0]).tolist()
+
+        ## パラメータから制御値の算出
+        up_offset = np.array([0, 0, 50, 0, 0, 0]).tolist()
+        c4 = c4_true.copy()
+        c4_near = (np.array(c4) + np.array(c4_near_offset)).tolist()
+        c4_near_up = (np.array(c4_near) + np.array(up_offset)).tolist()
+        c1 = (np.array(c4) + np.array([0, -box_length_c4c1, 0, 0, 0, 90])).tolist()
+        c1_near = (np.array(c1) + np.array(c1_near_offset)).tolist()
+        c1_near_up = (np.array(c1_near) + np.array(up_offset)).tolist()
+        c2 = (np.array(c1) + np.array([box_length_c1c2, 0, 0, 0, 0, 90])).tolist()
+        c2_near = (np.array(c2) + np.array(c2_near_offset)).tolist()
+        c2_near_up = (np.array(c2_near) + np.array(up_offset)).tolist()
+        c3 = (np.array(c2) + np.array([0, box_length_c4c1, 0, 0, 0, 90])).tolist()
+        c3_near = (np.array(c3) + np.array(c3_near_offset)).tolist()
+        c3_near_up = (np.array(c3_near) + np.array(up_offset)).tolist()
+        # カッターが進む長さ
+        cut_length_c4c1 = box_length_c4c1 + buffer_length
+        cut_length_c1c2 = box_length_c1c2 + buffer_length
+
+        mode = "all"
+        if mode == "all":
+            # 元の位置
+            joint = self.robot.get_current_joint()
+            self.robot.move_pose(c4_near_up, interpolation=1, fig=-3)
+            c4_near_up_joint = self.robot.get_current_joint()
+            if c4_near_up_joint[5] < 0:
+                c4_near_up_joint[5] += 360
+            self.robot.move_joint(c4_near_up_joint)
+            self._cut_c4_to_c1(c4_near, cut_length_c4c1, force_lim=3)
+            self._cut_c1_to_c2(c1_near, cut_length_c1c2, force_lim=5)
+            self._cut_c2_to_c3(c2_near, cut_length_c4c1, force_lim=3)
+            self._cut_c3_to_c4(c3_near, cut_length_c1c2, force_lim=5)
+            # カット終了後は上に引き上げる
+            pose = self.robot.get_current_pose()
+            pose[2] += 50
+            self.robot.move_pose(pose, interpolation=1, fig=-3)
+            # 元の位置に戻す
+            self.robot.move_joint(joint)
+        elif mode == "c1_to_c2":
+            self.robot.move_pose(c1_near_up, interpolation=1, fig=-3)
+            self._cut_c1_to_c2(c1_near, cut_length_c1c2, force_lim=5)
+        elif mode == "c2_to_c3":
+            self.robot.move_pose(c2_near_up, interpolation=1, fig=-3)
+            self._cut_c2_to_c3(c2_near, cut_length_c4c1, force_lim=3)
+        elif mode == "c3_to_c4":
+            self.robot.move_pose(c3_near_up, interpolation=1, fig=-3)
+            self._cut_c3_to_c4(c3_near, cut_length_c1c2, force_lim=5)
+        elif mode == "c4_to_c1":
+            self.robot.move_pose(c4_near_up, interpolation=1, fig=-3)
+            self._cut_c4_to_c1(c4_near, cut_length_c4c1, force_lim=3)
+        else:
+            raise ValueError("Unknown line cut mode")
+
+    def _cut_c1_to_c2(self, pose_near, cut_length, force_lim) -> None:
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        self.robot.move_pose(pose_near, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose_near, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose_near, baseline_forces, 1, 1, -50, 25, force_lim=force_lim):
+            raise ValueError("Failed to adjust y axis")
+        self._line_straight_cut([cut_length, 0, 0, 0, 0, 0])
+
+    def _cut_c2_to_c3(self, pose_near, cut_length, force_lim) -> None:
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        self.robot.move_pose(pose_near, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose_near, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose_near, baseline_forces, 0, -1, -50, 25, force_lim=force_lim):
+            raise ValueError("Failed to adjust x axis")
+        self._line_straight_cut([0, cut_length, 0, 0, 0, 0])
+
+    def _cut_c3_to_c4(self, pose_near, cut_length, force_lim) -> None:
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        self.robot.move_pose(pose_near, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose_near, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose_near, baseline_forces, 1, -1, -50, 25, force_lim=force_lim):
+            raise ValueError("Failed to adjust y axis")
+        self._line_straight_cut([-cut_length, 0, 0, 0, 0, 0])
+
+    def _cut_c4_to_c1(self, pose_near, cut_length, force_lim) -> None:
+        self.robot.ForceSensor()
+        baseline_forces = self.get_stable_forces()
+        self.robot.move_pose(pose_near, interpolation=1, fig=-3)
+        if not self._adjust_1d(pose_near, baseline_forces, 2, -1, -100, 25):
+            raise ValueError("Failed to adjust z axis")
+        if not self._adjust_1d(pose_near, baseline_forces, 0, 1, -25, 50, force_lim=force_lim):
+            raise ValueError("Failed to adjust y axis")
+        self._line_straight_cut([0, -cut_length, 0, 0, 0, 0])
+
     def line_cut(self) -> None:
         try:
             if self.tool_id != 3:
@@ -1321,9 +1568,10 @@ class Cobotta_Pro_CON:
             line_cut_mode = 1
             if line_cut_mode == 1:
                 # 任意の方向に切れる
-                self._line_cut_impl_1()
+                # self._line_cut_impl_1()
                 # 特定の場所の箱の特定の方向にしか切れない
                 # self._line_cut_impl_2()
+                self._line_cut_impl_3()
             else:
                 raise ValueError("Unknown line cut mode")
             self.pose[39] = 1
@@ -1374,6 +1622,12 @@ class Cobotta_Pro_CON:
                     self.jog_joint(**command["params"])
                 elif command["command"] == "jog_tcp":
                     self.jog_tcp(**command["params"])
+                elif command["command"] == "move_joint":
+                    self.logger.info("Move joint not during MQTT control")
+                    wait = command.get("wait", False)
+                    self.move_joint(**command["params"])
+                    if wait:
+                        control_pipe.send({"status": True})
                 elif command["command"] == "demo_put_down_box":
                     self.logger.info("Demo put down box not during MQTT control")
                     self.demo_put_down_box()
