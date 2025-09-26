@@ -652,6 +652,13 @@ class Cobotta_Pro_CON:
             self.logger.error("Error moving to tidy pose")
             self.logger.error(f"{self.robot.format_error(e)}")
 
+    def move_joint(self, joints: List[float]) -> None:
+        try:
+            self.robot.move_joint_until_completion(joints)
+        except Exception as e:
+            self.logger.error("Error moving to specified joint")
+            self.logger.error(f"{self.robot.format_error(e)}")
+
     def clear_error(self) -> None:
         try:
             self.robot.clear_error()
@@ -1615,6 +1622,12 @@ class Cobotta_Pro_CON:
                     self.jog_joint(**command["params"])
                 elif command["command"] == "jog_tcp":
                     self.jog_tcp(**command["params"])
+                elif command["command"] == "move_joint":
+                    self.logger.info("Move joint not during MQTT control")
+                    wait = command.get("wait", False)
+                    self.move_joint(**command["params"])
+                    if wait:
+                        control_pipe.send({"status": True})
                 elif command["command"] == "demo_put_down_box":
                     self.logger.info("Demo put down box not during MQTT control")
                     self.demo_put_down_box()

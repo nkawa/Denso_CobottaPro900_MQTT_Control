@@ -302,7 +302,7 @@ class ProcessManager:
         self.recvP.start()
         self.state_recv_mqtt = True
 
-    def startMonitor(self, logging_dir: str | None = None):
+    def startMonitor(self, logging_dir: str | None = None, disable_mqtt: bool = False):
         self.mon = Cobotta_Pro_MON()
         self.monP = Process(
             target=self.mon.run_proc,
@@ -311,7 +311,8 @@ class ProcessManager:
                   self.slave_mode_lock,
                   self.log_queue,
                   self.monitor_pipe,
-                  logging_dir),
+                  logging_dir,
+                  disable_mqtt),
             name="Cobotta-Pro-monitor")
         self.monP.start()
         self.state_monitor = True
@@ -367,7 +368,10 @@ class ProcessManager:
         self.control_to_archiver_queue.close()
 
     def _send_command_to_control(self, command):
+        wait = command.get("wait", False)
         self.main_to_control_pipe.send(command)
+        if wait:
+            return self.main_to_control_pipe.recv()
 
     def _send_command_to_monitor(self, command):
         self.main_to_monitor_pipe.send(command)
@@ -410,6 +414,9 @@ class ProcessManager:
 
     def jog_tcp(self, axis, direction):
         self._send_command_to_control({"command": "jog_tcp", "params": {"axis": axis, "direction": direction}})
+
+    def move_joint(self, joints: list[float], wait: bool = False):
+        self._send_command_to_control({"command": "move_joint", "params": {"joints": joints}, "wait": wait})
 
     def demo_put_down_box(self):
         self._send_command_to_control({"command": "demo_put_down_box"})
