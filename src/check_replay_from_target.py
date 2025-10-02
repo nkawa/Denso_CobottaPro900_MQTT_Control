@@ -121,6 +121,8 @@ class MQTTTargetReplayer:
             self.pm.move_joint(joints[0], wait=True)
             self.logger.info("Start replay")
             self.pm.start_mqtt_control()
+            # スレーブモード切り替え処理などで時間がかかるので待つ
+            time.sleep(3)
             t0 = time.time()
             i = 0
             while True:
