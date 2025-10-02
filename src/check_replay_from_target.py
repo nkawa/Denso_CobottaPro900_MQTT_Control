@@ -100,8 +100,6 @@ class MQTTTargetReplayer:
 
     def _replay(self):
         self.logger.info(f"Replaying from {self.target_path}")
-        self.sm = multiprocessing.shared_memory.SharedMemory(SHM_NAME)
-        self.pose = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf)
         try:
             with open(self.target_path, "r") as f:
                 i = 0
@@ -139,11 +137,11 @@ class MQTTTargetReplayer:
             while True:
                 t = time.time() - t0
                 if t >= ts[i]:
-                    self.pose[6:12] = joints[i]
+                    self.pm.ar[6:12] = joints[i]
                     i += 1
                 if i >= len(ts):
                     break
-                self.pose[20] = 1
+                self.pm.ar[20] = 1
             self.logger.info("Finish replay")
             self.pm.stop_mqtt_control()
         except Exception as e:
@@ -158,7 +156,6 @@ class MQTTTargetReplayer:
         self.pm.enable()
         self._replay()
         self.pm.disable()
-        self.sm.close()
         self.pm.stop_all_processes()
         # TODO: Hanging here
         self.logger.info("Process stopped (except logging)")
