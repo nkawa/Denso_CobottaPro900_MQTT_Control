@@ -36,7 +36,7 @@ class MQTTTargetReplayer:
     def __init__(
         self,
         target_path: str,
-        logging_dir: str,
+        log_dir: str,
         use_joint_monitor_plot: bool = False,
         start: Optional[float] = None,
         stop: Optional[float] = None,
@@ -47,12 +47,21 @@ class MQTTTargetReplayer:
         self.use_joint_monitor_plot = use_joint_monitor_plot
         self.pm = ProcessManager()
         log_queue = self.pm.log_queue
-        self.logging_dir = logging_dir
-        os.makedirs(logging_dir, exist_ok=True)
+        self.logging_dir = self.get_logging_dir(log_dir)
         self.setup_logging(log_queue=log_queue, logging_dir=self.logging_dir)
         self.setup_logger(log_queue=log_queue)
         self.gui_log_queue = queue.Queue()
         self.logger.info("Starting Process!")
+
+    def get_logging_dir(self, log_dir: str = "log") -> str:
+        now = datetime.datetime.now()
+        os.makedirs(log_dir, exist_ok=True)
+        date_str = now.strftime("%Y-%m-%d")
+        os.makedirs(os.path.join(log_dir, date_str), exist_ok=True)
+        time_str = now.strftime("%H-%M-%S")
+        logging_dir = os.path.join(log_dir, date_str, time_str)
+        os.makedirs(logging_dir, exist_ok=True)
+        return logging_dir
 
     def setup_logging(
         self,
@@ -60,6 +69,8 @@ class MQTTTargetReplayer:
         logging_dir: Optional[str] = None,
     ) -> None:
         """複数プロセスからのログを集約する方法を設定する"""
+        if logging_dir is None:
+            logging_dir = self.get_logging_dir()
         handlers = [
             logging.FileHandler(os.path.join(logging_dir, "log.txt")),
             logging.StreamHandler(),
@@ -176,9 +187,9 @@ if __name__ == '__main__':
         help="再生する目標値ファイルのパス",
     )
     parser.add_argument(
-        "--logging-dir",
+        "--log-dir",
         type=str,
-        required=True,
+        default="log_replay",
         help="ログを保存するディレクトリのパス",
     )
     parser.add_argument(

@@ -362,6 +362,10 @@ class LogViewer(QtWidgets.QWidget):
 
 
 if __name__ == '__main__':
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument('--log-dir', type=str, default='log', help='ログディレクトリのパス')
+    args = parser.parse_args()
     from PyQt6.QtGui import QFont
     # 日本語対応フォント名（環境に応じて変更可）
     # 例: "IPAGothic", "Noto Sans CJK JP", "VL Gothic" など
@@ -369,7 +373,7 @@ if __name__ == '__main__':
     jp_font.setPointSize(10)
     QtWidgets.QApplication.setFont(jp_font)
     app = QtWidgets.QApplication(sys.argv)
-    log_dir = 'log'
+    log_dir = args.log_dir
     win = LogViewer(log_dir)
     win.setWindowTitle('Log Viewer')
     win.show()
