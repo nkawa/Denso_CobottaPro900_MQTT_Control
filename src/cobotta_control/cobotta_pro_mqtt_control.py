@@ -373,6 +373,9 @@ class ProcessManager:
         if wait:
             return self.main_to_control_pipe.recv()
 
+    def _send_command_to_control_archiver(self, command):
+        self.main_to_control_archiver_pipe.send(command)
+
     def _send_command_to_monitor(self, command):
         self.main_to_monitor_pipe.send(command)
 
@@ -442,4 +445,4 @@ class ProcessManager:
         self.stop_mqtt_control()
         # 制御記録用プロセス
         self.ar[35] = 1
-        self._send_command_to_control({"command": "change_log_file", "params": {"logging_dir": logging_dir}})
+        self._send_command_to_control_archiver({"command": "change_log_file", "params": {"logging_dir": logging_dir}})
