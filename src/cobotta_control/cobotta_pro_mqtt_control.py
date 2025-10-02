@@ -39,7 +39,6 @@ MQTT_MODE = os.getenv("MQTT_MODE", "metawork")
 
 class Cobotta_Pro_MQTT:
     def __init__(self):
-        self.gripState = False
         self.mqtt_ctrl_topic = None
         self.last_registered = None
  
@@ -108,14 +107,9 @@ class Cobotta_Pro_MQTT:
 
             if "grip" in js:
                 if js['grip']:
-                    if not self.gripState:
-                        self.gripState = True
-                        self.pose[13] = 1
-
+                    self.pose[13] = 1
                 else:
-                    if self.gripState:
-                        self.gripState = False
-                        self.pose[13] = 2
+                    self.pose[13] = 2
             
             if "tool_change" in js:
                 if self.pose[17] == 0:
@@ -246,6 +240,7 @@ class ProcessManager:
         # self.arの要素の説明
         # [0:6]: 関節の状態値
         # [6:12]: 関節の目標値
+        # [12]: ハンドの状態値
         # [13]: ハンドの目標値
         # [14]: 0: 必ず通常モード。1: 基本的にスレーブモード（通常モードになっている場合もある）
         # [15]: 0: mqtt_control実行中でない。1: mqtt_control実行中
@@ -267,6 +262,7 @@ class ProcessManager:
         # [37]: スレーブモードの状態値。0: 通常モード。1: スレーブモード
         # [38]: カッター移動の実行フラグ。0: 終了。1: 開始
         # [39]: カッター移動の完了状態。0: 未定義。1: 成功。2: 失敗
+        # [40]: ハンドの把持力。
         self.ar = np.ndarray((SHM_SIZE,), dtype=np.dtype("float32"), buffer=self.sm.buf) # 共有メモリ上の Array
         self.ar[:] = 0
         self.manager = multiprocessing.Manager()

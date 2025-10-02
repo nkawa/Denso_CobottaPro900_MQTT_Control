@@ -272,29 +272,19 @@ class Cobotta_Pro_MON:
                 width = None
                 force = None
             else:
-                # ツール依存の部分はまとめるべき
-                if tool_id == -1:
-                    width = None
-                    force = None
-                else:
-                    if self.hand_name == "onrobot_2fg7":
-                        try:
-                            width = self.hand.get_ext_width()
-                            force = self.hand.get_force()
-                        except Exception as e:
-                            self.logger.error("Error in onrobot_2fg7 hand: ")
-                            self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
-                            width = None
-                            force = None
-                    elif self.hand_name == "onrobot_vgc10":
+                width = None
+                force = None
+                if self.hand_name == "onrobot_2fg7":
+                    width = self.pose[12]
+                    if width == 0:
                         width = None
+                    else:
+                        width = float(width - 100)
+                    force = self.pose[40]
+                    if force == 0:
                         force = None
-                    elif self.hand_name == "cutter":
-                        width = None
-                        force = None
-                    elif self.hand_name == "plate_holder":
-                        width = None
-                        force = None
+                    else:
+                        force = float(force - 100)
 
             # モータがONか
             try:

@@ -5,6 +5,7 @@ import queue
 from typing import Any, Dict, List, Literal, TextIO, Tuple
 import datetime
 import time
+import traceback
 
 import os
 import sys
@@ -164,6 +165,31 @@ class Cobotta_Pro_CON:
             self.logger.error("Error in initializing robot: ")
             self.logger.error(f"{self.robot.format_error(e)}")
 
+    def get_hand_state(self):        
+        # ハンドの状態値を取得して共有メモリに格納する
+        width = None
+        force = None
+        # NOTE: グリッパー。幅はVR表示に必要かもしれない。
+        # 力は把持の有無に変換してもよいかもしれない。
+        if self.hand_name == "onrobot_2fg7":
+            width = self.hand.get_ext_width()
+            force = self.hand.get_force()
+        # NOTE: 真空グリッパー。真空度しか取得できないのでどう使うか不明。
+        elif self.hand_name == "onrobot_vgc10":
+            width = 0
+            force = 0
+        if width is None:
+            width = 0
+        else:
+            # 0に意味があるのでオフセットをもたせる
+            width += 100
+        if force is None:
+            force = 0
+        else:
+            force += 100
+        self.pose[12] = width
+        self.pose[40] = force
+
     def find_and_setup_hand(self, tool_id):
         connected = False
         tool_info = self.get_tool_info(tool_infos, tool_id)
@@ -199,6 +225,72 @@ class Cobotta_Pro_CON:
             else:
                 self.logger.info("Process real-time priority set to: %u" % rt_app_priority)
 
+    def format_error(self, e: Exception) -> str:
+        s = "\n"
+        s = s + "Error trace: " + traceback.format_exc() + "\n"
+        return s
+
+    def hand_control_loop(self, stop_event, error_event, lock, error_info):
+        self.logger.info("Start Hand Control Loop")
+        last_tool_corrected = None
+        t_intv_hand = 0.16
+        last_tool_corrected_time = time.time()
+        while True:
+            now = time.time()
+            if stop_event.is_set():
+                break
+            # 現在情報を取得しているかを確認
+            if self.pose[19] != 1:
+                time.sleep(t_intv_hand)
+                continue
+            # 目標値を取得しているかを確認
+            if self.pose[20] != 1:
+                time.sleep(t_intv_hand)
+                continue
+            # ツールの値を取得
+            # 値0が意味を持つので共有メモリではオフセットをかけている
+            tool = self.pose[13]
+            if tool == 0:
+                time.sleep(t_intv_hand)
+                continue
+            tool_corrected = tool
+            if tool_corrected != last_tool_corrected:
+                try:
+                    if tool_corrected == 1:
+                        self.send_grip()
+                    elif tool_corrected == 2:
+                        self.send_release()
+                except Exception as e:
+                    with lock:
+                        error_info['kind'] = "hand"
+                        error_info['msg'] = self.format_error(e)
+                        error_info['exception'] = e
+                    error_event.set()
+                    break
+            # ハンドの状態値を取得
+            # 情報を常に取得するとアームの制御ループの処理間隔を乱し
+            # 情報が必要なのはハンドに制御値を送った少し後だけなので以下のようにする
+            # NOTE: 常に取得した方がいいかもしれない。処理間隔を乱すなら別プロセス化の方がいいかもしれない
+            if now - last_tool_corrected_time < 1:
+                try:
+                    self.get_hand_state()
+                except Exception as e:
+                    with lock:
+                        error_info['kind'] = "hand"
+                        error_info['msg'] = self.format_error(e)
+                        error_info['exception'] = e
+                    error_event.set()
+                    break
+            if tool_corrected != last_tool_corrected:
+                last_tool_corrected = tool_corrected
+                last_tool_corrected_time = now
+            # 適度に間隔を開ける
+            t_elapsed = time.time() - now
+            t_wait = t_intv_hand - t_elapsed
+            if t_wait > 0:
+                time.sleep(t_wait)
+        self.logger.info("Stop Hand Control Loop")
+
     def control_loop(self, f: TextIO | None = None) -> bool:
         """リアルタイム制御ループ"""
         self.last = 0
@@ -209,11 +301,31 @@ class Cobotta_Pro_CON:
         self.pose[20] = 0
         target_stop = None
         sw = StopWatch()
+        stop_event = threading.Event()
+        error_event = threading.Event()
+        lock = threading.Lock()
+        error_info = {}
         last_target = None
+
+        use_hand_thread = True
+        if use_hand_thread:
+            hand_thread = threading.Thread(
+                target=self.hand_control_loop,
+                args=(stop_event, error_event, lock, error_info)
+            )
+            hand_thread.start()
+        else:
+            last_tool_corrected = None
 
         while True:
             sw.start("Get shared memory")
             now = time.time()
+
+            # TODO: これがメインスレッドを遅くしている可能性ありだが
+            # この1行だけでとも思う。要検証
+            # 但しハンド由来のエラーでループを終了できなくなる
+            if not hand_thread.is_alive():
+                break
 
             # NOTE: テスト用データなど、時間が経つにつれて
             # targetの値がstateの値によらずにどんどん
@@ -224,6 +336,8 @@ class Cobotta_Pro_CON:
             # ガッとロボットが動いてしまう。実際のシステムでは
             # targetはstateに依存するのでまた別に考える
             stop = self.pose[16]
+            if stop:
+                stop_event.set()
 
             # 現在情報を取得しているかを確認
             if self.pose[19] != 1:
@@ -231,11 +345,18 @@ class Cobotta_Pro_CON:
                 # self.logger.info("Wait for monitoring")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
-                    return True
+                    break
                 # ロボットにコマンドを送る前は、非常停止が押されているかを
                 # スレーブモードが解除されているかで確認する
                 if self.pose[37] != 1:
-                    raise ValueError("Robot is not in servo mode")
+                    msg = "Robot is not in servo mode"
+                    with lock:
+                        error_info['kind'] = "robot"
+                        error_info['msg'] = msg
+                        error_info['exception'] = ValueError(msg)
+                    error_event.set()
+                    stop_event.set()
+                    break
                 continue
 
             # 目標値を取得しているかを確認
@@ -244,11 +365,18 @@ class Cobotta_Pro_CON:
                 # self.logger.info("Wait for target")
                 # 取得する前に終了する場合即時終了可能
                 if stop:
-                    return True
+                    break
                 # ロボットにコマンドを送る前は、非常停止が押されているかを
                 # スレーブモードが解除されているかで確認する
                 if self.pose[37] != 1:
-                    raise ValueError("Robot is not in servo mode")
+                    msg = "Robot is not in servo mode"
+                    with lock:
+                        error_info['kind'] = "robot"
+                        error_info['msg'] = msg
+                        error_info['exception'] = ValueError(msg)
+                    error_event.set()
+                    stop_event.set()
+                    break
                 continue
 
             # NOTE: 最初にVR側でロボットの状態値を取得できていれば追加してもよいかも
@@ -296,7 +424,14 @@ class Cobotta_Pro_CON:
                 target_state_abs_joint_diff_limit).any()
             ):
                 # 強制停止する。強制停止しないとエラーメッセージを返すのが複雑になる
-                raise ValueError(f"Target and state are too different. State: {state}, Target: {target}, Last target: {last_target}, Diff limit: {target_state_abs_joint_diff_limit}")
+                msg = f"Target and state are too different. State: {state}, Target: {target}, Last target: {last_target}, Diff limit: {target_state_abs_joint_diff_limit}"
+                with lock:
+                    error_info['kind'] = "robot"
+                    error_info['msg'] = msg
+                    error_info['exception'] = ValueError(msg)
+                error_event.set()
+                stop_event.set()
+                break
 
             last_target = target
 
@@ -305,7 +440,7 @@ class Cobotta_Pro_CON:
                 self.logger.info("Start sending control command")
                 # 制御する前に終了する場合即時終了可能
                 if stop:
-                    return True
+                    break
                 self.last = now
 
                 # 目標値を遅延を許して極力線形補間するためのセットアップ
@@ -346,7 +481,14 @@ class Cobotta_Pro_CON:
                 # ロボットにコマンドを送る前は、非常停止が押されているかを
                 # スレーブモードが解除されているかで確認する
                 if self.pose[37] != 1:
-                    raise ValueError("Robot is not in servo mode")
+                    msg = "Robot is not in servo mode"
+                    with lock:
+                        error_info['kind'] = "robot"
+                        error_info['msg'] = msg
+                        error_info['exception'] = ValueError(msg)
+                    error_event.set()
+                    stop_event.set()
+                    break
                 continue
 
             sw.lap("Check stop")
@@ -512,7 +654,7 @@ class Cobotta_Pro_CON:
             sw.lap("Put control to shared memory")
             self.pose[24:30] = control
 
-            sw.lap("Save control")
+            sw.lap("Save control - gather data")
             # 分析用データ保存
             datum = [
                 dict(
@@ -533,6 +675,7 @@ class Cobotta_Pro_CON:
                     accel_max_ratio=accel_max_ratio,
                 ),
             ]
+            sw.lap("Save control - save to queue")
             self.control_to_archiver_queue.put(datum)
 
             sw.lap("Check elapsed before command")
@@ -550,25 +693,39 @@ class Cobotta_Pro_CON:
                 except ORiNException as e:
                     if (type(e) is ORiNException and
                         e.hresult == HResult.E_TIMEOUT):
-                        raise e
+                        with lock:
+                            error_info['kind'] = "robot"
+                            error_info['msg'] = self.robot.format_error(e)
+                            error_info['exception'] = e
+                        error_event.set()
+                        stop_event.set()
+                        break
                     is_error_level_0 = self.robot.is_error_level_0(e)
                     if is_error_level_0:
                         self.logger.warning(
                             "Maybe trivial error in move_joint_servo")
                         self.logger.warning(f"{self.robot.format_error(e)}")
                     else:
-                        raise e
+                        with lock:
+                            error_info['kind'] = "robot"
+                            error_info['msg'] = self.robot.format_error(e)
+                            error_info['exception'] = e
+                        error_event.set()
+                        stop_event.set()
+                        break
 
-                sw.lap("Send hand command")
-                if self.pose[13] == 1:
-                    th1 = threading.Thread(target=self.send_grip)
-                    th1.start()
-                    self.pose[13] = 0
-
-                if self.pose[13] == 2:
-                    th2 = threading.Thread(target=self.send_release)
-                    th2.start()
-                    self.pose[13] = 0
+                if not use_hand_thread:
+                    sw.lap("Send hand command")
+                    tool = self.pose[13]
+                    tool_corrected = tool
+                    if tool_corrected != last_tool_corrected:
+                        if tool_corrected == 1:
+                            th1 = threading.Thread(target=self.send_grip)
+                            th1.start()
+                        elif tool_corrected == 2:
+                            th2 = threading.Thread(target=self.send_release)
+                            th2.start()
+                        last_tool_corrected = tool_corrected
 
             sw.lap("Wait control loop")
             t_elapsed = time.time() - now
@@ -590,38 +747,34 @@ class Cobotta_Pro_CON:
                 # スレーブモードでは十分低速時に2回同じ位置のコマンドを送ると
                 # ロボットを停止させてスレーブモードを解除可能な状態になる
                 if (control == self.last_control).all():
-                    return True
+                    break
                 
             self.last_control = control
             self.last = now
+        
+        hand_thread.join()
+        if error_event.is_set():
+            # TODO: これで例外発生元のスタックトレースが取得できればこれで十分
+            raise error_info['exception']
+        return True
 
     def send_grip(self) -> None:
-        try:
-            if self.tool_id == -1:
-                return
-            if self.hand_name == "onrobot_2fg7":
-                # NOTE: 呼ぶ度に目標の把持力は変更できるので
-                # VRコントローラーからの入力で動的に把持力を
-                # 変えることもできる (どういう仕組みを作るかは別)
-                self.hand.grip(waiting=False)
-            elif self.hand_name == "onrobot_vgc10":
-                self.hand.grip(waiting=False, vacuumA=80,  vacuumB=80)
-        except Exception:
-            self.logger.exception("Error gripping hand")
+        if self.hand_name == "onrobot_2fg7":
+            # NOTE: 呼ぶ度に目標の把持力は変更できるので
+            # VRコントローラーからの入力で動的に把持力を
+            # 変えることもできる (どういう仕組みを作るかは別)
+            self.hand.grip(waiting=False)
+        elif self.hand_name == "onrobot_vgc10":
+            self.hand.grip(waiting=False, vacuumA=80,  vacuumB=80)
     
     def send_release(self) -> None:
-        try:
-            if self.tool_id == -1:
-                return
-            if self.hand_name == "onrobot_2fg7":
-                # NOTE: 呼ぶ度に目標の把持力は変更できるので
-                # VRコントローラーからの入力で動的に把持力を
-                # 変えることもできる (どういう仕組みを作るかは別)
-                self.hand.release(waiting=False)
-            elif self.hand_name == "onrobot_vgc10":
-                self.hand.release(waiting=False)
-        except Exception:
-            self.logger.exception("Error releasing hand")
+        if self.hand_name == "onrobot_2fg7":
+            # NOTE: 呼ぶ度に目標の把持力は変更できるので
+            # VRコントローラーからの入力で動的に把持力を
+            # 変えることもできる (どういう仕組みを作るかは別)
+            self.hand.release(waiting=False)
+        elif self.hand_name == "onrobot_vgc10":
+            self.hand.release(waiting=False)
 
     def enable(self) -> None:
         try:
