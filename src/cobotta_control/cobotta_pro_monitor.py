@@ -120,7 +120,9 @@ class Cobotta_Pro_MON:
         if reason_code != 0:
             self.logger.warning("MQTT unexpected disconnection.")
 
-    def connect_mqtt(self):
+    def connect_mqtt(self, disable_mqtt: bool = False):
+        if disable_mqtt:
+            self.client = None
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         self.client.on_connect = self.on_connect         # 接続時のコールバック関数を登録
@@ -270,29 +272,19 @@ class Cobotta_Pro_MON:
                 width = None
                 force = None
             else:
-                # ツール依存の部分はまとめるべき
-                if tool_id == -1:
-                    width = None
-                    force = None
-                else:
-                    if self.hand_name == "onrobot_2fg7":
-                        try:
-                            width = self.hand.get_ext_width()
-                            force = self.hand.get_force()
-                        except Exception as e:
-                            self.logger.error("Error in onrobot_2fg7 hand: ")
-                            self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
-                            width = None
-                            force = None
-                    elif self.hand_name == "onrobot_vgc10":
+                width = None
+                force = None
+                if self.hand_name == "onrobot_2fg7":
+                    width = self.pose[12]
+                    if width == 0:
                         width = None
+                    else:
+                        width = float(width - 100)
+                    force = self.pose[40]
+                    if force == 0:
                         force = None
-                    elif self.hand_name == "cutter":
-                        width = None
-                        force = None
-                    elif self.hand_name == "plate_holder":
-                        width = None
-                        force = None
+                    else:
+                        force = float(force - 100)
 
             # モータがONか
             try:
@@ -385,7 +377,8 @@ class Cobotta_Pro_MON:
 
             if now-last > 0.3 or "tool_change" in actual_joint_js or "put_down_box" in actual_joint_js:
                 jss = json.dumps(actual_joint_js)
-                self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
+                if self.client is not None:
+                    self.client.publish(MQTT_ROBOT_STATE_TOPIC, jss)
                 with self.monitor_lock:
                     actual_joint_js["topic_type"] = "robot"
                     actual_joint_js["topic"] = MQTT_ROBOT_STATE_TOPIC
@@ -446,7 +439,7 @@ class Cobotta_Pro_MON:
         self.logging_dir = logging_dir
         self.pose[34] = 0
 
-    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue, monitor_pipe, logging_dir):
+    def run_proc(self, monitor_dict, monitor_lock, slave_mode_lock, log_queue, monitor_pipe, logging_dir, disable_mqtt: bool = False):
         self.setup_logger(log_queue)
         self.logger.info("Process started")
         self.sm = mp.shared_memory.SharedMemory(SHM_NAME)
@@ -459,7 +452,7 @@ class Cobotta_Pro_MON:
 
         self.init_realtime()
         self.init_robot()
-        self.connect_mqtt()
+        self.connect_mqtt(disable_mqtt=disable_mqtt)
         while True:
             try:
                 if save_state:
@@ -475,8 +468,9 @@ class Cobotta_Pro_MON:
                 self.logger.error("Error in monitor")
                 self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
             if self.pose[32] == 1:
-                self.client.loop_stop()
-                self.client.disconnect()
+                if self.client is not None:
+                    self.client.loop_stop()
+                    self.client.disconnect()
                 self.sm.close()
                 time.sleep(1)
                 self.logger.info("Process stopped")

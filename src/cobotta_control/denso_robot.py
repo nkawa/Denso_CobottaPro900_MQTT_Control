@@ -1576,13 +1576,29 @@ class DensoRobot:
         es = python_error_to_original_error_str(hr)
         return es[3] == "0"
 
-    def ForceValue(self) -> List[float]:
+    def ForceValue(self, num: int = 13, mode: int = 0) -> List[float]:
         """
-        センサ値の力[N]とモーメント[Nm]。内訳は[X, Y, Z, RX, RY, RZ]。
-        引数13で取得可能。
-        非常停止中も実行できる。
+        力制御の各種データを取得します。
+
+        指定項目
+            データ番号
+                力制御の要求データの番号を設定します。("解説"参照)
+                整数型データで指定します。
+            モード
+                整数型データで指定します。"0"を指定するとデータを取得します。"-1"を指定するとデータを取得し、さらに値のリセットを行います。省略可能です。省略した場合は"0"を指定したことになります。
+
+        戻り値
+            データ番号に対応した値をバリアント(Variant)型の1次配列で返します。各要素はポジション型データです。
+
+        解説
+            各種データの取得には、[力センサ有り コンプライアンス制御機能]のライセンス登録が必要です。ただし、センサのデータ (データ番号13～15) は、[力センサ有り コンプライアンス制御機能]のライセンスが未登録の状態でも、[内蔵力センサ機能(CRC9)]のライセンスが登録されている状態であれば、取得可能です。
+            各制御で使用できるデータ番号を下記に示します。
+
+        NOTE:
+            引数13でセンサ値の力[N]とモーメント[Nm]。内訳は[X, Y, Z, RX, RY, RZ]。
+            非常停止中も実行できる。
         """
-        return self._bcap.robot_execute(self._hRob, "ForceValue", [13, 0])
+        return self._bcap.robot_execute(self._hRob, "ForceValue", [num, mode])
 
     def are_all_errors_stateless(self, errors):
         stateless_errors = (
@@ -1764,3 +1780,140 @@ class DensoRobot:
         """
         return self._bcap.robot_execute(
             self._hRob, "OutRange", [Pose, ToolDef, WorkDef])
+
+    def ForceSensor(self, num: int = 0) -> None:
+        """        
+        力センサに対して機能番号に応じた処理を行います。
+
+        指定項目
+            機能番号
+                力センサに対する処理の番号を整数型データで指定します。"0"を指定すると力センサのリセットを行います。"0"のみ有効です。 
+
+        解説
+            力センサに対して機能番号に応じた処理を行います。
+            力センサ有コンプライアンス機能専用のコマンドです。
+        """
+
+        return self._bcap.robot_execute(self._hRob, "ForceSensor", [num])
+
+    def CurForceSensorPayLoad(self) -> List[float]:
+        """
+        力センサ負荷質量の設定値を返します。
+        戻り値
+            力センサ負荷質量の設定値 (センサ先端負荷質量、センサ先端負荷重心位置、センサ先端負荷重心イナーシャ) を、Variant型の配列で返します。
+        解説
+            力センサ負荷質量の設定値 (センサ先端負荷質量、センサ先端負荷重心位置、センサ先端負荷重心イナーシャ) の配列を返します。各要素については、ForceSensorPayLoadコマンドの指定項目を参照してください。 下の用例のように、設定値を一時的に変更したい場合に使用します。
+        """
+        return self._bcap.robot_execute(self._hRob, "CurForceSensorPayLoad")
+
+    def ForceCtrl(
+        self,
+        enable: int,
+        force_ctrl_num: int,
+        mode: Optional[int] = None,
+    ) -> None:
+        """
+        力制御機能の有効/無効を設定します。
+
+        引数
+            enable (int): 有効/無効を整数型データで指定します。有効はOnまたは0以外、無効はOffまたは0を指定します。
+            force_ctrl_num (int): 使用する力制御番号1～10を設定します。有効時は必須、無効時は不要です。
+            mode (int, optional): [1: 力センサ有コンプライアンス機能]、[2: 外力倣い制御機能]を設定します。省略可能です。省略した場合は、[力制御設定]画面で設定されているモードになります。
+
+        注意事項
+            モータ電源OFF状態で実行しても、力制御は有効になりません。また、力制御中にモータ電源OFFした場合は、力制御は無効になります。
+            ロボット制御権を取得 (TakeArm) したタスクにて実行してください。ロボット制御権が未取得の場合は、エラー[83501024: アームセマフォを取得できません。]が発生します。
+            ロボットが接触状態など、ロボットに力が加わった状態で本コマンドを実行しないでください。
+            内部負荷条件設定 (先端負荷質量、負荷重心位置) を正確に設定してください。先端負荷設定値と実際の先端負荷が異なる場合、重力方向に落下する場合があります。
+            力制御機能使用中は、高速動作できません。外部速度と内部速度の積が50%を超えた状態で動作命令を実行すると、エラー[83201530: 力制御、速度制限オーバー]が発生します。エラー発生時は、内部速度の設定値を下げてください。
+        """
+        args = [enable]
+        if enable:
+            args.append(force_ctrl_num)
+            if mode is not None:
+                args.append(mode)
+        return self._bcap.robot_execute(self._hRob, "ForceCtrl", args)
+
+    def ForceParam(
+        self,
+        force_ctrl_num: int,
+        coord: int,
+        force: List[float],
+        rate: Optional[List[float]] = None,
+        pos_eralw: Optional[List[float]] = None,
+        eralw: Optional[List[float]] = None,
+        damp: Optional[List[float]] = None,
+        sp_max: Optional[float] = None,
+        rsp_max: Optional[float] = None,
+        mass: Optional[List[float]] = None,
+        spring: Optional[List[float]] = None,
+    ) -> None:
+        """
+        力制御機能のパラメータを設定します。
+
+        引数
+            force_ctrl_num (int): 力制御番号 (力制御機能のパラメータテーブル番号) 1～10を選択します。
+            coord (int): 座標を[0 : ベース座標系]、[1 : ツール座標系]、[2 : ワーク座標系]より選択します。
+            force (List[float]): ロボットを制御するための力。ポジション型データ(X、Y、Z、RX、RY、RZ)で指定します。
+            rate (List[float], optional): X、Y、Z方向、X軸回り、Y軸回り、Z軸回りの制御割合。省略可能です。
+            pos_eralw (List[float], optional): 手先位置のサーボ偏差許容値。省略可能です。
+            eralw (List[float], optional): 各軸のサーボ偏差許容値。省略可能です。
+            damp (List[float], optional): 速度に応じて増加する抵抗力の割合。省略可能です。
+            sp_max (float, optional): 手先並進速度制限値[mm/s]。省略可能です。
+            rsp_max (float, optional): 手先回転速度制限値[deg/s]。省略可能です。
+            mass (List[float], optional): 加速度に応じて増加する抵抗力の割合。省略可能です。
+            spring (List[float], optional): 位置に応じて増加する戻り力の強さの割合。省略可能です。
+
+        """
+        args = [force_ctrl_num, coord, force]
+        if rate is not None:
+            args.append(rate)
+        if pos_eralw is not None:
+            args.append(pos_eralw)
+        if eralw is not None:
+            args.append(eralw)
+        if damp is not None:
+            args.append(damp)
+        if sp_max is not None:
+            args.append(sp_max)
+        if rsp_max is not None:
+            args.append(rsp_max)
+        if mass is not None:
+            args.append(mass)
+        if spring is not None:
+            args.append(spring)
+        return self._bcap.robot_execute(self._hRob, "ForceParam", args)
+
+    def ForceWaitCondition(
+        self,
+        position: Optional[List[float]] = None,
+        force: Optional[List[float]] = None,
+        time: Optional[int] = None,
+        mode: int = 0,
+        timeout: Optional[int] = None,
+    ) -> None:
+        """
+        力制御の状態が指定した条件になるまで、待機します。
+
+        引数
+            position (List[float], optional): 力制御座標系での、制御開始からの手先の変位量[mm]、[deg]の絶対値。"-1"を指定した要素は参照しません。省略可能です。
+            force (List[float], optional): 力制御座標系に換算した力とモーメント[N]、[Nm]の絶対値。"-1"を指定した要素は参照しません。省略可能です。
+            time (int, optional): 制御開始からの経過時間[ms]。省略可能です。
+            mode (int, optional): 条件達成時のロボットと力制御の終了モード。省略可能です。省略した場合は"0"を指定したことになります。
+            timeout (int, optional): タイムアウト時間[ms]。省略可能です。
+
+        """
+        args = []
+        if position is None:
+            position = [-1, -1, -1, -1, -1, -1]
+        args.append({"Position": position})
+        if force is None:
+            force = [-1, -1, -1, -1, -1, -1]
+        args.append({"Force": force})
+        if time is not None:
+            args.append({"Time": time})
+        if mode is not None:
+            args.append({"Mode": mode})
+        if timeout is not None:
+            args.append({"Timeout": timeout})
+        return self._bcap.robot_execute(self._hRob, "ForceWaitCondition", args)
