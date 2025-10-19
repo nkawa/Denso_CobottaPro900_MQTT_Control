@@ -172,7 +172,7 @@ class Cobotta_Pro_MON:
                     is_in_tool_change = True
                     self.logger.info("Tool change started")
             else:
-                if is_in_tool_change:
+                if self.pose[41] == 1 and is_in_tool_change:
                     is_in_tool_change = False
                     status_tool_change = bool(self.pose[18] == 1)
                     self.logger.info("Tool change finished")
@@ -199,7 +199,7 @@ class Cobotta_Pro_MON:
                 if not is_put_down_box:
                     is_put_down_box = True
             else:
-                if is_put_down_box:
+                if self.pose[41] == 1 and is_put_down_box:
                     is_put_down_box = False
                     status_put_down_box = bool(self.pose[22] == 1)
             # 終了した場合のみキーを追加
@@ -213,7 +213,7 @@ class Cobotta_Pro_MON:
                 if not line_cut:
                     line_cut = True
             else:
-                if line_cut:
+                if self.pose[41] == 1 and line_cut:
                     line_cut = False
                     status_line_cut = bool(self.pose[39] == 1)
             # 終了した場合のみキーを追加
@@ -224,16 +224,20 @@ class Cobotta_Pro_MON:
             try:
                 actual_tcp_pose = self.robot.get_current_pose()
             except Exception as e:
-                self.logger.error("Error in get_current_pose: ")
-                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
+                if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                    self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                else:
+                    self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 actual_tcp_pose = None
             # 関節
             try:
                 actual_joint = self.robot.get_current_joint()
             except Exception as e:
-                self.logger.error("Error in get_current_joint: ")
-                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
+                if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                    self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                else:
+                    self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 actual_joint = None
             if actual_joint is not None:
@@ -259,8 +263,10 @@ class Cobotta_Pro_MON:
             try:
                 forces = self.robot.ForceValue()
             except Exception as e:
-                self.logger.error("Error in ForceValue: ")
-                self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
+                if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                    self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                else:
+                    self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 forces = None
             if forces is not None:
@@ -290,10 +296,10 @@ class Cobotta_Pro_MON:
             try:
                 enabled = self.robot.is_enabled()
             except Exception as e:
-                self.logger.warning(
-                    "Somehow failed in checking if robot is enabled. "
-                    "Enabled value may be incorrect.")
-                self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                    self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                else:
+                    self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
                 enabled = False
             actual_joint_js["enabled"] = enabled
@@ -303,10 +309,10 @@ class Cobotta_Pro_MON:
             try:
                 is_in_servo_mode = self.robot.is_in_servo_mode()
             except Exception as e:
-                self.logger.warning(
-                    "Somehow failed in checking if robot is in servo mode. "
-                    "Enabled value may be incorrect.")
-                self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                    self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                else:
+                    self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                 self.reconnect_after_timeout(e)
             # 切り替わるときにログを出す
             if  is_in_servo_mode != last_is_in_servo_mode:
@@ -329,7 +335,10 @@ class Cobotta_Pro_MON:
                     try:
                         errors = self.robot.get_cur_error_info_all()
                     except Exception as e:
-                        self.logger.error("Error in get_cur_error_info_all: ")
+                        if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                            self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                        else:
+                            self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                         self.logger.error(f"{self.robot.format_error(e)}")
                         self.reconnect_after_timeout(e)
                         errors = []
@@ -345,10 +354,10 @@ class Cobotta_Pro_MON:
                     try:
                         is_emergency_stopped = self.robot.is_emergency_stopped()
                     except Exception as e:
-                        self.logger.warning(
-                            "Somehow failed in checking if robot is emergency stopped."
-                            "Thus value may be incorrect.")
-                        self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                        if type(e) is ORiNException and self.robot.is_error_level_0(e):
+                            self.logger.warning(f"{self.robot.format_error_wo_desc(e)}")
+                        else:
+                            self.logger.error(f"{self.robot.format_error_wo_desc(e)}")
                         self.reconnect_after_timeout(e)
             # 切り替わるときにログを出す
             if is_emergency_stopped != last_is_emergency_stopped:

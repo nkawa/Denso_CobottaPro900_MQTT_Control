@@ -77,13 +77,13 @@ E_GRIP_NOT_DETECTED = original_error_to_python_error(0x8350048f)
 
 path = os.path.join(os.path.dirname(__file__),"..","vendor","denso_cobotta","error_list.xlsx")
 df = pd.read_excel(path)
-E_VEL_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象速度エラー"].astype(bool), "コード"].apply(
+E_VEL_AUTO_RECOVERABLE_SET = set(df.loc[df["自動復帰対象速度エラー"].astype(bool), "コード"].apply(
     lambda x: original_error_to_python_error(int(x, 16))
 ))
-E_ACCEL_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象加速度エラー"].astype(bool), "コード"].apply(
+E_ACCEL_AUTO_RECOVERABLE_SET = set(df.loc[df["自動復帰対象加速度エラー"].astype(bool), "コード"].apply(
     lambda x: original_error_to_python_error(int(x, 16))
 ))
-E_AUTO_RECOVERABLE_SET = set(df.loc[~df["自動復帰対象エラー"].astype(bool), "コード"].apply(
+E_AUTO_RECOVERABLE_SET = set(df.loc[df["自動復帰対象エラー"].astype(bool), "コード"].apply(
     lambda x: original_error_to_python_error(int(x, 16))
 ))
 E_EMERGENCY_STOP_SET = set(df.loc[df["非常停止エラー"].astype(bool), "コード"].apply(

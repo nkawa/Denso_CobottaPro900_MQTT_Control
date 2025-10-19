@@ -15,6 +15,7 @@ import psutil
 import multiprocessing as mp
 import threading
 
+import modern_robotics as mr
 import numpy as np
 from dotenv import load_dotenv
 
@@ -51,6 +52,7 @@ filter_kind: Literal[
     "state_and_target_diff",
     "moveit_servo_humble",
     "control_and_target_diff",
+    "feedback_pd_traj",
 ] = "original"
 speed_limits = np.array([240, 200, 240, 300, 300, 475])
 speed_limit_ratio = 0.35
@@ -360,6 +362,9 @@ class Cobotta_Pro_CON:
                     break
                 continue
 
+            # ツールチェンジなど後の制御可能フラグ
+            self.pose[41] = 1
+
             # 目標値を取得しているかを確認
             if self.pose[20] != 1:
                 time.sleep(t_intv)
@@ -472,13 +477,24 @@ class Cobotta_Pro_CON:
                     self.last_control = state
                     _filter = SMAFilter(n_windows=n_windows)
                     _filter.reset(state)
+                elif filter_kind == "feedback_pd_traj":
+                    N = 6
+                    Tf = t_intv * (N - 1)
+                    method = 5
+                    Kp = 0.6
+                    Kd = 0.02
+                    prev_error = np.zeros(6)
+                    pd_step = 0
 
                 # 速度制限をフィルタの手前にも入れてみる
                 if True:
-                    assert filter_kind == "original"
+                    assert filter_kind in ["original", "feedback_pd_traj"]
                     self.last_target_delayed_velocity = np.zeros(6)
 
-                self.last_control_velocity = np.zeros(6)
+                if filter_kind == "original":
+                    self.last_control_velocity = np.zeros(6)
+                elif filter_kind == "feedback_pd_traj":
+                    self.last_control_velocity = np.zeros((N - 1, 6))
                 # ロボットにコマンドを送る前は、非常停止が押されているかを
                 # スレーブモードが解除されているかで確認する
                 if self.pose[37] != 1:
@@ -513,7 +529,7 @@ class Cobotta_Pro_CON:
             sw.lap("1st speed limit")
             # 速度制限をフィルタの手前にも入れてみる
             if True:
-                assert filter_kind == "original"
+                assert filter_kind in ["original", "feedback_pd_traj"]
                 target_diff = target_delayed - self.last_target_delayed
                 # 速度制限
                 dt = now - self.last
@@ -603,37 +619,94 @@ class Cobotta_Pro_CON:
                 last_target_filtered = _filter.previous_filtered_measurement
                 target_filtered = _filter.filter(target_aligned)
                 target_diff = target_filtered - last_target_filtered
+            elif filter_kind == "feedback_pd_traj":
+                if pd_step == 0:
+                    error = target_delayed - state
+                    d_error = (error - prev_error) / Tf
+                    mse = np.mean(error ** 2)
+                    target_goal = state + Kp * error + Kd * d_error
+                    prev_error = error
+                    target_steps = mr.JointTrajectory(
+                        state.tolist(),
+                        target_goal.tolist(),
+                        Tf,
+                        N,
+                        method,
+                    )
+                    # 速度制限
+                    dt = t_intv
+                    # [N - 1, 6]
+                    target_diffs = np.diff(target_steps, axis=0)
+                    vs = target_diffs / dt
+                    ratios = np.abs(vs) / (speed_limit_ratio * speed_limits)[None, :]
+                    max_ratio = np.max(ratios)
+                    if max_ratio > 1:
+                        vs /= max_ratio
+
+                    # 加速度制限
+                    # [N, 6]
+                    vs_ = np.concatenate([self.last_control_velocity[[-1], :], vs], axis=0)
+                    # [N - 1, 6]
+                    as_ = np.diff(vs_, axis=0) / dt
+                    accel_ratios = np.abs(as_) / (accel_limit_ratio * accel_limits)[None, :]
+                    accel_max_ratio = np.max(accel_ratios)
+                    if accel_max_ratio > 1:
+                        as_ /= accel_max_ratio
+                    # [N - 1, 6]
+                    vs_ = vs_[0][None, :] + np.cumsum(as_, axis=0) * dt
+
+                    target_diffs_speed_limited = vs_ * dt
+                    # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
+                    # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
+                    # にしか静止させてはいけない
+                    for i in range(N - 1):
+                        if np.all(target_diffs_speed_limited[i] / dt < stopped_velocity_eps):
+                            target_diffs_speed_limited[i] = np.zeros_like(
+                                target_diffs_speed_limited[i])
+                            vs_[i] = target_diffs_speed_limited[i] / dt
+
+                    # [N - 1, 6]
+                    target_steps_speed_limited = target_steps[0][None, :] + np.cumsum(vs_, axis=0) * dt
+                    self.last_control_velocity = vs_
+
+                target_step_speed_limited = target_steps_speed_limited[pd_step]
+
+                # Next step
+                pd_step += 1
+                if pd_step == N - 1:
+                    pd_step = 0
             else:
                 raise ValueError
 
             sw.lap("2nd speed limit")
-            # 速度制限
-            dt = now - self.last
-            v = target_diff / dt
-            ratio = np.abs(v) / (speed_limit_ratio * speed_limits)
-            max_ratio = np.max(ratio)
-            if max_ratio > 1:
-                v /= max_ratio
-            target_diff_speed_limited = v * dt
+            if filter_kind != "feedback_pd_traj":
+                # 速度制限
+                dt = now - self.last
+                v = target_diff / dt
+                ratio = np.abs(v) / (speed_limit_ratio * speed_limits)
+                max_ratio = np.max(ratio)
+                if max_ratio > 1:
+                    v /= max_ratio
+                target_diff_speed_limited = v * dt
 
-            # 加速度制限
-            a = (v - self.last_control_velocity) / dt
-            accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
-            accel_max_ratio = np.max(accel_ratio)
-            if accel_max_ratio > 1:
-                a /= accel_max_ratio
-            v = self.last_control_velocity + a * dt
-            target_diff_speed_limited = v * dt
+                # 加速度制限
+                a = (v - self.last_control_velocity) / dt
+                accel_ratio = np.abs(a) / (accel_limit_ratio * accel_limits)
+                accel_max_ratio = np.max(accel_ratio)
+                if accel_max_ratio > 1:
+                    a /= accel_max_ratio
+                v = self.last_control_velocity + a * dt
+                target_diff_speed_limited = v * dt
 
-            # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
-            # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
-            # にしか静止させてはいけない
-            if np.all(target_diff_speed_limited / dt < stopped_velocity_eps):
-                target_diff_speed_limited = np.zeros_like(
-                    target_diff_speed_limited)
-                v = target_diff_speed_limited / dt
+                # 速度がしきい値より小さければ静止させ無駄なドリフトを避ける
+                # NOTE: スレーブモードを落とさないためには前の速度が十分小さいとき (しきい値は不明) 
+                # にしか静止させてはいけない
+                if np.all(target_diff_speed_limited / dt < stopped_velocity_eps):
+                    target_diff_speed_limited = np.zeros_like(
+                        target_diff_speed_limited)
+                    v = target_diff_speed_limited / dt
 
-            self.last_control_velocity = v
+                self.last_control_velocity = v
 
             sw.lap("Get control")
             # 平滑化の種類による対応
@@ -649,6 +722,8 @@ class Cobotta_Pro_CON:
                 control = state + target_diff_speed_limited
             elif filter_kind == "control_and_target_diff":
                 control = last_target_filtered + target_diff_speed_limited
+            elif filter_kind == "feedback_pd_traj":
+                control = target_step_speed_limited
             else:
                 raise ValueError
 
@@ -755,7 +830,10 @@ class Cobotta_Pro_CON:
  
         # スレーブモード解除可能な状態になったら即時に解除しないと指令値生成遅延になる
         self.leave_servo_mode()       
- 
+
+         # ツールチェンジなど後の制御可能フラグ
+        self.pose[41] = 0
+
         hand_thread.join()
         if error_event.is_set():
             # TODO: これで例外発生元のスタックトレースが取得できればこれで十分
@@ -1190,6 +1268,7 @@ class Cobotta_Pro_CON:
             if next_tool_id != 0:
                 try:
                     self.logger.info(f"Tool change to: {next_tool_id}")
+                    self.pose[41] = 0
                     self.tool_change(next_tool_id)
                     self.pose[18] = 1
                 except Exception as e:
@@ -1198,6 +1277,7 @@ class Cobotta_Pro_CON:
                     self.pose[18] = 2
                 finally:
                     self.pose[17] = 0
+                    self.pose[41] = 1
                     break
 
     def jog_joint(self, joint: int, direction: float) -> None:
